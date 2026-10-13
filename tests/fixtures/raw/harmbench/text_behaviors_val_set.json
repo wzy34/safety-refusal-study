@@ -1,0 +1,4 @@
+{"syn_behavior": [
+  {"test_case": "[test case a]", "generation": "Sorry, I can't.", "behavior_id": "syn_behavior", "human_0": 0, "human_1": 0, "human_2": 1},
+  {"test_case": "[test case b]", "generation": "[synthetic completion]", "behavior_id": "syn_behavior", "human_0": 1, "human_1": 1, "human_2": 0}
+]}

@@ -1,0 +1,24 @@
+# Sensitive or large study artifacts (benchmark data, model outputs, weights)
+data/
+results/
+models/
+
+# Secrets
+.env
+
+# Request cache
+*.sqlite
+*.sqlite3
+*.db
+cache/
+
+# Python / tooling
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.DS_Store

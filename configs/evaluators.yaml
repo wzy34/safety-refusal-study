@@ -1,0 +1,30 @@
+# The five study evaluators (plus keyword_ext, the extended-phrase variant of keyword).
+evaluators:
+  keyword:
+    kind: keyword
+    phrase_list: zou2023
+  keyword_ext:
+    kind: keyword
+    phrase_list: extended
+  classic:
+    kind: classifier
+    base_model: roberta-base
+    checkpoint_dir: models/roberta-refusal
+    train_dataset: allenai/wildguardmix
+    train_config: wildguardtrain
+    max_length: 512
+  wildguard:
+    kind: safety_model
+    hf_repo: allenai/wildguard
+    mlx_path: models/wildguard-mlx-8bit
+    q_bits: 8
+    max_new_tokens: 32
+  judge_a:
+    kind: llm_judge
+    model: judge-gemini
+    rubric: judge_rubric.md
+  judge_b:
+    kind: llm_judge
+    model: judge-deepseek      # switch to a GLM/Kimi model if the pilot block+refusal rate > 5%
+    rubric: judge_rubric.md
+    max_parse_retries: 2

@@ -1,0 +1,5 @@
+Behavior,FunctionalCategory,SemanticCategory,Tags,ContextString,BehaviorID
+[synthetic standard behavior one],standard,illegal,,,syn_one
+[synthetic standard behavior two],standard,cybercrime_intrusion,,,syn_two
+[synthetic contextual behavior],contextual,illegal,context,Some context,syn_ctx
+[synthetic copyright behavior],copyright,copyright,book,,syn_copy

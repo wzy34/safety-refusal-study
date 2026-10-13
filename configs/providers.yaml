@@ -1,0 +1,36 @@
+# One OpenAI-compatible endpoint per provider. API keys are read from the named env var.
+# Content-filter codes/patterns below are starting points; confirm or replace them with the
+# codes observed in the pilot (task 9.2). Anything not listed is treated as `fatal`.
+providers:
+  google:
+    base_url: https://generativelanguage.googleapis.com/v1beta/openai/   # Gemini OpenAI-compatible endpoint
+    api_key_env: GEMINI_API_KEY
+    max_concurrency: 8
+    requests_per_minute: 150         # set to your Gemini tier's limit for the chosen models
+    blocked_error_codes: []          # pilot: confirm how prompt-level safety blocks are reported
+    blocked_finish_reasons: [content_filter]   # pilot: confirm Gemini's SAFETY mapping
+
+  deepseek:
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY
+    max_concurrency: 8
+    requests_per_minute: 300
+    blocked_message_patterns: ["Content Exists Risk"]   # pilot: confirm
+    blocked_finish_reasons: [content_filter]
+
+  moonshot:
+    base_url: https://api.moonshot.cn/v1   # this account's key is for the China platform (.ai returns 401)
+    api_key_env: MOONSHOT_API_KEY
+    max_concurrency: 4
+    requests_per_minute: 60
+    blocked_error_codes: [content_filter]   # pilot: confirm
+    blocked_message_patterns: ["considered high risk"]
+    blocked_finish_reasons: [content_filter]
+
+  zhipu:
+    base_url: https://open.bigmodel.cn/api/paas/v4   # or https://api.z.ai/api/paas/v4 (international)
+    api_key_env: ZHIPU_API_KEY
+    max_concurrency: 4
+    requests_per_minute: 60
+    blocked_error_codes: ["1301"]   # pilot: confirm. 1113 = insufficient balance (HTTP 429), not a block
+    blocked_finish_reasons: [content_filter, sensitive]

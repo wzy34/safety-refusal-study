@@ -1,0 +1,38 @@
+seed: 20261010
+
+generation:
+  temperature: 0.0
+  max_tokens: 1024
+  system_prompt: null
+
+stability:
+  n_samples: 5
+  temperature: 0.7
+  n_intents: 40
+  split: main
+
+splits:
+  pilot_intents: 50
+  rq3_intents: 200
+  main_intents: null     # null: every intent not in pilot or rq3
+
+annotation:
+  sample_size: 350
+  pilot_calibration_size: 100
+  pass2_min_days: 7
+  disagreement_oversample: 3.0
+
+analysis:
+  primary_evaluator: judge_a       # provisional; chosen from the pilot calibration (task 9.5)
+  primary_evaluator_rationale: null
+  primary_rule: partial_as_refusal
+  include_borderline: false
+  bootstrap_resamples: 2000
+  ci_level: 0.95
+
+paths:
+  data_dir: data
+  results_dir: results
+  models_dir: models
+  prompts_dir: prompts
+  cache_path: data/cache/requests.sqlite

@@ -1,0 +1,146 @@
+# Model IDs chosen 2026-10-11 (task 9.1) to minimise cost. Each family uses ONE base model with
+# thinking off (-a) and on (-b), so the a/b contrast isolates thinking rather than model size.
+# Capability flags (design D2) decide which request parameters are sent.
+#   token_param:          max_tokens | max_completion_tokens
+#   structured_output:    json_schema | json_object | none
+#   price_*_per_mtok:     USD per million tokens, used only for dry-run cost estimates
+models:
+  # Gemini 2.5 models are closed to new users, and Gemini 3+ cannot fully disable thinking, so
+  # gemini-a uses "minimal" (report it as minimised, not off). The compat endpoint leaves
+  # thinking tokens out of completion_tokens; they are billed and equal
+  # total - prompt - completion. Seed and strict json_schema support: confirm in the pilot.
+  gemini-a:
+    provider: google
+    model: gemini-3.1-flash-lite
+    family: gemini
+    token_param: max_tokens
+    supports_temperature: true
+    supports_seed: false
+    structured_output: json_schema
+    is_reasoning: false
+    extra_body: {reasoning_effort: minimal}
+    price_in_per_mtok: 0.25
+    price_out_per_mtok: 1.50
+  gemini-b:
+    provider: google
+    model: gemini-3.1-flash-lite
+    family: gemini
+    token_param: max_tokens
+    supports_temperature: false   # Google advises keeping thinking models at the default 1.0
+    supports_seed: false
+    structured_output: json_schema
+    is_reasoning: true
+    extra_body: {reasoning_effort: high}
+    price_in_per_mtok: 0.25
+    price_out_per_mtok: 1.50
+
+  # deepseek-flash = DeepSeek-V4.1-Flash; thinking is on by default. Prices are peak rates;
+  # off-peak (outside 01-04 and 06-10 UTC on weekdays, plus weekends) is half price.
+  # Temperature is ignored in thinking mode.
+  deepseek-a:
+    provider: deepseek
+    model: deepseek-flash
+    family: deepseek
+    token_param: max_tokens
+    supports_temperature: true
+    supports_seed: false
+    structured_output: json_object
+    is_reasoning: false
+    extra_body: {thinking: {type: disabled}}
+    price_in_per_mtok: 0.30
+    price_out_per_mtok: 1.20
+  deepseek-b:
+    provider: deepseek
+    model: deepseek-flash
+    family: deepseek
+    token_param: max_tokens
+    supports_temperature: false
+    supports_seed: false
+    structured_output: json_object
+    is_reasoning: true
+    extra_body: {thinking: {type: enabled}}
+    price_in_per_mtok: 0.30
+    price_out_per_mtok: 1.20
+
+  # K2.6 fixes temperature (0.6 non-thinking, 1.0 thinking) and top_p (0.95) and returns an
+  # error if any other value is sent. Prices converted from CNY 6.5 / 27 at ~7.1 CNY/USD.
+  kimi-a:
+    provider: moonshot
+    model: kimi-k2.6
+    family: kimi
+    token_param: max_tokens
+    supports_temperature: false
+    supports_seed: false
+    structured_output: json_object
+    is_reasoning: false
+    extra_body: {thinking: {type: disabled}}
+    price_in_per_mtok: 0.92
+    price_out_per_mtok: 3.80
+  kimi-b:
+    provider: moonshot
+    model: kimi-k2.6
+    family: kimi
+    token_param: max_tokens
+    supports_temperature: false
+    supports_seed: false
+    structured_output: json_object
+    is_reasoning: true
+    extra_body: {thinking: {type: enabled}}
+    price_in_per_mtok: 0.92
+    price_out_per_mtok: 3.80
+
+  # GLM-5.3, GLM-5.3-Flash and GLM-5.3-FlashX always think, so the pair uses GLM-5.2.
+  # The thinking-off mode is unverified until the Zhipu account is topped up (srs llm ping).
+  # Prices are from third-party trackers; confirm on the Zhipu pricing page.
+  glm-a:
+    provider: zhipu
+    model: glm-5.2
+    family: glm
+    token_param: max_tokens
+    supports_temperature: true
+    supports_seed: false
+    structured_output: json_object
+    is_reasoning: false
+    extra_body: {thinking: {type: disabled}}
+    price_in_per_mtok: 1.40
+    price_out_per_mtok: 4.40
+  glm-b:
+    provider: zhipu
+    model: glm-5.2
+    family: glm
+    token_param: max_tokens
+    supports_temperature: true
+    supports_seed: false
+    structured_output: json_object
+    is_reasoning: true
+    extra_body: {thinking: {type: enabled}}
+    price_in_per_mtok: 1.40
+    price_out_per_mtok: 4.40
+
+  # Utility roles: judges, framing rewriter / intent checker, category and tier screens.
+  # Both judges are the cheap tier with thinking minimised/off, so temperature 0 applies and
+  # the rationale-first JSON does the reasoning.
+  judge-gemini:
+    provider: google
+    model: gemini-3.1-flash-lite
+    family: gemini
+    token_param: max_tokens
+    supports_temperature: true
+    supports_seed: false
+    structured_output: json_schema
+    extra_body: {reasoning_effort: minimal}
+    price_in_per_mtok: 0.25
+    price_out_per_mtok: 1.50
+  judge-deepseek:
+    provider: deepseek
+    model: deepseek-flash
+    family: deepseek
+    token_param: max_tokens
+    supports_temperature: true
+    supports_seed: false
+    structured_output: json_object
+    extra_body: {thinking: {type: disabled}}
+    price_in_per_mtok: 0.30
+    price_out_per_mtok: 1.20
+
+evaluated: [gemini-a, gemini-b, deepseek-a, deepseek-b, kimi-a, kimi-b, glm-a, glm-b]
