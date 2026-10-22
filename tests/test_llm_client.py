@@ -55,6 +55,23 @@ def test_retry_then_success(cfg):
     assert c.status == "ok" and len(client.transport.calls) == 3
 
 
+def test_stalled_call_hits_hard_deadline_and_is_retried(cfg):
+    """A connection that never returns must not hang the call (the SDK timeout is per read)."""
+    cfg.providers["google"].timeout_s = 0.01
+    client = make_fake_client(cfg, queue=[fake_response("ok")])
+    inner, stalls = client.transport.create, []
+
+    async def create(provider, body, extra_body, timeout):
+        if not stalls:
+            stalls.append(1)
+            await asyncio.sleep(3600)
+        return await inner(provider, body, extra_body, timeout)
+
+    client.transport.create = create
+    c = run(asyncio.wait_for(client.complete("gemini-a", MSGS, P), timeout=5))
+    assert c.status == "ok" and c.text == "ok" and stalls == [1]
+
+
 def test_retries_exhausted_not_cached(cfg):
     n = cfg.providers["google"].max_retries + 1
     client = make_fake_client(cfg, queue=[rate_limit_error()] * n + [fake_response("later")])
@@ -88,18 +105,18 @@ def test_fatal_error(cfg):
 def test_cache_hit_makes_no_call(cfg, tmp_path):
     cache = RequestCache(tmp_path / "c.sqlite")
     client = make_fake_client(cfg, cache=cache)
-    first = run(client.complete("kimi-a", MSGS, P))
-    second = run(client.complete("kimi-a", MSGS, P))
+    first = run(client.complete("qwen-a", MSGS, P))
+    second = run(client.complete("qwen-a", MSGS, P))
     assert len(client.transport.calls) == 1 and second.cached and second.text == first.text
-    run(client.complete("kimi-a", MSGS, GenParams(max_tokens=2048, temperature=0.0)))
+    run(client.complete("qwen-a", MSGS, GenParams(max_tokens=2048, temperature=0.0)))
     assert len(client.transport.calls) == 2
 
 
 def test_interrupted_run_resumes_from_cache(cfg, tmp_path):
     path = tmp_path / "c.sqlite"
-    run(make_fake_client(cfg, cache=RequestCache(path)).complete("kimi-a", MSGS, P))
+    run(make_fake_client(cfg, cache=RequestCache(path)).complete("qwen-a", MSGS, P))
     fresh = make_fake_client(cfg, cache=RequestCache(path))  # a "restarted" process
-    assert run(fresh.complete("kimi-a", MSGS, P)).cached and fresh.transport.calls == []
+    assert run(fresh.complete("qwen-a", MSGS, P)).cached and fresh.transport.calls == []
 
 
 def test_structured_json_object(cfg):
@@ -111,8 +128,8 @@ def test_structured_json_object(cfg):
 
 
 def test_concurrency_respected_through_client(cfg):
-    cfg.providers["moonshot"].max_concurrency = 2
-    cfg.providers["moonshot"].requests_per_minute = 60_000
+    cfg.providers["alibaba"].max_concurrency = 2
+    cfg.providers["alibaba"].requests_per_minute = 60_000
     client = make_fake_client(cfg, delay_s=0.02)
     inflight = peak = 0
     orig = client.transport.create
@@ -127,7 +144,7 @@ def test_concurrency_respected_through_client(cfg):
             inflight -= 1
 
     client.transport.create = tracking
-    jobs = [("kimi-a", [{"role": "user", "content": f"q{i}"}], P) for i in range(10)]
+    jobs = [("qwen-a", [{"role": "user", "content": f"q{i}"}], P) for i in range(10)]
     run(client.complete_many(jobs))
     assert peak == 2
 
@@ -141,5 +158,5 @@ def test_real_client_refuses_placeholders(cfg):
 def test_cache_salt_separates_repeated_samples(cfg):
     client = make_fake_client(cfg)
     for s in ("1", "2", "1"):
-        run(client.complete("kimi-a", MSGS, P, cache_salt=s))
+        run(client.complete("qwen-a", MSGS, P, cache_salt=s))
     assert len(client.transport.calls) == 2

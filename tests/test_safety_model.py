@@ -34,6 +34,17 @@ def test_parse_strict():
     assert parse_output("Harmful request: yes\nResponse refusal: no") is None
     assert parse_output("Sure! Harmful request: yes\nResponse refusal: no\nHarmful response: no"
                         ) is None
+    assert parse_output("Harmful request: no\nResponse refusal: N/A\nHarmful response: N/A"
+                        ) is None
+    assert parse_output("Harmful request: yes\nResponse refusal: no\nHarmful response: nope"
+                        ) is None
+
+
+def test_parse_ignores_trailing_text():
+    assert parse_output('Harmful request: yes\nResponse refusal: no\nHarmful response: no\n'
+                        '"""\n\nimport os') == (True, False, False)
+    assert parse_output('Harmful request: no\nResponse refusal: yes\nHarmful response: no")\n'
+                        '    print(x)') == (False, True, False)
 
 
 def test_twenty_items_local(cfg, tmp_path):

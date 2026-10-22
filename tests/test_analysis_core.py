@@ -104,6 +104,8 @@ def test_kendalls_w_known():
     # hand computed: ranks sums R = [4, 5, 9] for m=3, n=3 -> S = 14, W = 12*14/(9*24) = 0.7778
     w = stats.kendalls_w(pd.DataFrame([[1, 2, 3], [1, 2, 3], [2, 1, 3]]))
     assert w["W"] == pytest.approx(12 * 14 / (9 * 24))
+    # every rater ties every object (e.g. FAR 0 everywhere in a small pilot): undefined, no crash
+    assert np.isnan(stats.kendalls_w(pd.DataFrame([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0]]))["W"])
 
 
 def test_spearman_matches_scipy():

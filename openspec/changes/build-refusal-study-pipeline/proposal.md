@@ -9,7 +9,7 @@ The study in `research_ideas.md` asks whether LLMs refuse appropriately: under-r
 ## What Changes
 
 - New Python project (`srs` package, managed with uv) driven by a typer CLI and YAML configs. API keys come from `.env`. Each run records a manifest of its config and code version.
-- **Async API client.** Uses the official `openai` SDK with a separate `base_url` for each provider: Gemini (via its OpenAI-compatible endpoint), DeepSeek, Kimi/Moonshot and GLM/Zhipu.
+- **Async API client.** Uses the official `openai` SDK with a separate `base_url` for each provider: Gemini (via its OpenAI-compatible endpoint), DeepSeek, Qwen/Alibaba Cloud Bailian and GLM/Zhipu; the Claude judge goes through the official `anthropic` SDK.
   - Each model has an adapter that adjusts request parameters to what the model supports.
   - Rate limits apply per provider. Retries use exponential backoff.
   - Provider content-filter blocks are recorded as `api_blocked`, never as model refusals.
@@ -25,7 +25,7 @@ The study in `research_ideas.md` asks whether LLMs refuse appropriately: under-r
   1. Keyword matching.
   2. Fine-tuned RoBERTa-base classifier.
   3. WildGuard 7B run locally with MLX at 8-bit.
-  4. Gemini rubric judge (Judge A).
+  4. Claude Haiku 5.5 rubric judge (Judge A; Gemini until 2026-10-15).
   5. DeepSeek rubric judge (Judge B), using the same rubric.
 
   All evaluators write to one judgment schema (3-class refusal + harmfulness). When a judge refuses to judge, or a parse fails, that is recorded as a separate status.
@@ -61,7 +61,7 @@ The study in `research_ideas.md` asks whether LLMs refuse appropriately: under-r
 - **New code:** `pyproject.toml`, `src/srs/**`, `configs/*.yaml`, `prompts/*`, `tests/**`, `.env.example` and `.gitignore`. The folder should be initialized as a git repository so run manifests can record the code version.
 - **Dependencies:** `openai`, `tenacity`, `pydantic`, `typer`, `pyyaml`, `pandas`, `pyarrow`, `datasets`, `mlx-lm`, `transformers`, `torch`, `scikit-learn`, `statsmodels`, `scipy`, `krippendorff`, `streamlit`, `matplotlib` and `pytest`.
 - **External systems:**
-  - The Gemini, DeepSeek, Moonshot and Zhipu APIs, which cost money.
+  - The Gemini, DeepSeek, Alibaba Cloud Bailian and Zhipu APIs, which cost money.
   - Hugging Face Hub, which needs `HF_TOKEN` and accepted licenses for the gated WildGuard and WildGuardMix.
   - About 8 GB of local RAM for WildGuard under MLX.
 - **Data handling:** responses can contain harmful content. `data/`, `results/` and `models/` are git-ignored, and logs never print full response text.

@@ -31,9 +31,9 @@ def test_require_provider_keys(cfg, monkeypatch):
 def test_dotenv_does_not_override(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "_dotenv_loaded", False)
     env = tmp_path / ".env"
-    env.write_text("MOONSHOT_API_KEY=from-file\nHF_TOKEN=hf-from-file\n")
-    monkeypatch.setenv("MOONSHOT_API_KEY", "from-env")
+    env.write_text("DASHSCOPE_API_KEY=from-file\nHF_TOKEN=hf-from-file\n")
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "from-env")
     monkeypatch.delenv("HF_TOKEN", raising=False)
     config.load_dotenv_once(env)
-    assert get_secret("MOONSHOT_API_KEY") == "from-env"
+    assert get_secret("DASHSCOPE_API_KEY") == "from-env"
     assert get_secret("HF_TOKEN") == "hf-from-file"

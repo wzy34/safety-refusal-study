@@ -85,6 +85,7 @@ def group_metrics(df: pd.DataFrame, level: float = 0.95, n_boot: int = 2000,
     out["n_responses"] = len(answered)
     out["n_blocked"] = nb
     out["block_rate"], out["block_lo"], out["block_hi"] = _rate(nb, len(answered), level)
+    out["n_no_answer"] = int((df["status"] == "no_answer").sum())
 
     valid = df[df["valid"]]
     out["n_invalid_judgment"] = int(((df["status"] == "ok") & ~df["valid"]).sum())

@@ -33,6 +33,8 @@ class _Strict(BaseModel):
 
 
 class ProviderConfig(_Strict):
+    # Wire protocol: OpenAI-compatible Chat Completions, or Anthropic's native Messages API.
+    api: Literal["openai", "anthropic"] = "openai"
     base_url: str
     api_key_env: str
     max_concurrency: int = Field(8, ge=1)
@@ -195,6 +197,9 @@ class FramingsFile(_Strict):
 class GenerationSettings(_Strict):
     temperature: float = 0.0
     max_tokens: int = Field(1024, ge=1024)
+    # Thinking tokens count toward max_tokens on these APIs, so models with is_reasoning get
+    # their own (larger) limit; None means they use max_tokens too.
+    reasoning_max_tokens: int | None = Field(None, ge=1024)
     seed: int | None = None
     system_prompt: str | None = None
 
@@ -224,6 +229,9 @@ class AnalysisSettings(_Strict):
     primary_evaluator_rationale: str | None = None
     primary_rule: PartialRule = "partial_as_refusal"
     include_borderline: bool = False
+    # Splits pooled for the primary (direct-framing) analyses; the pilot stays out of the study
+    # results unless asked for (`srs analyze --splits pilot`).
+    primary_splits: list[Literal["pilot", "main", "rq3"]] = ["main", "rq3"]
     bootstrap_resamples: int = Field(2000, ge=100)
     ci_level: float = Field(0.95, gt=0, lt=1)
 
@@ -310,6 +318,13 @@ def _cross_check(cfg: StudyConfig) -> None:
     for mid, m in cfg.models.items():
         if m.provider not in cfg.providers:
             errors.append(f"models.yaml: model '{mid}' names unknown provider '{m.provider}'")
+        elif cfg.providers[m.provider].api == "anthropic":
+            if m.structured_output == "json_object":
+                errors.append(f"models.yaml: model '{mid}' is on the Anthropic API, which has "
+                              "no json_object mode; use json_schema or none")
+            if m.token_param != "max_tokens" or m.supports_seed:
+                errors.append(f"models.yaml: model '{mid}' is on the Anthropic API, which takes "
+                              "max_tokens and no seed")
     for mid in cfg.evaluated:
         if mid not in cfg.models:
             errors.append(f"models.yaml: evaluated model '{mid}' is not defined under models")
@@ -363,7 +378,7 @@ def load_config(config_dir: Path | str | None = None) -> StudyConfig:
 
 # --- secrets --------------------------------------------------------------------------------
 
-SECRET_ENV_VARS = ("GEMINI_API_KEY", "DEEPSEEK_API_KEY", "MOONSHOT_API_KEY", "ZHIPU_API_KEY",
+SECRET_ENV_VARS = ("GEMINI_API_KEY", "DEEPSEEK_API_KEY", "DASHSCOPE_API_KEY", "ZHIPU_API_KEY",
                    "HF_TOKEN")
 
 

@@ -39,6 +39,10 @@ Primary responses SHALL use the configured deterministic settings: temperature 0
 - **WHEN** a response stops because it hit the length limit
 - **THEN** the finish reason records the truncation
 
+#### Scenario: No visible answer
+- **WHEN** a response that was not blocked has an empty final answer (e.g. a thinking variant used its whole token budget on reasoning)
+- **THEN** the record has status `no_answer`, keeps its reasoning text and finish reason, is not retried, is not judged, and is left out of refusal rates; the count of `no_answer` responses is reported for each model
+
 ### Requirement: Scripted multi-turn conversations
 For multi-turn prompts, the system SHALL send each scripted user turn in order, adding the model's own reply after each turn before sending the next. The final text is the reply to the last turn; all intermediate replies are kept in the transcript.
 

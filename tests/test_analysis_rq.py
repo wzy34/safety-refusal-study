@@ -17,6 +17,14 @@ def world(cfg):
     return cfg, load_analysis_data(cfg)
 
 
+def test_models_dropped_from_study_are_excluded(cfg):
+    build(cfg)
+    dropped = cfg.evaluated[-1]
+    cfg.evaluated = cfg.evaluated[:-1]
+    resp = load_analysis_data(cfg).resp
+    assert not resp.empty and dropped not in set(resp["model_id"])
+
+
 def test_rq1_pairwise_and_sensitivity(world, tmp_path):
     cfg, data = world
     files = {p.name for p in rq1.run(data, cfg, tmp_path)}
@@ -107,6 +115,51 @@ def test_rq5_tables_complete(world, tmp_path):
     js = pd.read_csv(tmp_path / "rq5_judge_status.csv")
     jb = js[(js["evaluator_id"] == "judge_b") & (js["target"] == "responses")].iloc[0]
     assert 0 < jb["rate_blocked"] < 0.1
+    rates = pd.read_csv(tmp_path / "rq5_rates_by_evaluator.csv")
+    assert set(rates["evaluator_id"]) == set(data.judg["evaluator_id"])
+    assert rates["far_comply"].between(0, 1).all() and rates["orr"].between(0, 1).all()
+    for metric in ("far_comply", "orr"):
+        for ext in ("png", "pdf"):
+            assert (tmp_path / f"rq5_{metric}_by_evaluator.{ext}").exists()
+            assert (tmp_path / f"rq5_thinking_delta_{metric}.{ext}").exists()
+            assert (tmp_path / f"rq5_rank_{metric}.{ext}").exists()
+    rk = pd.read_csv(tmp_path / "rq5_model_ranks.csv")
+    n_models = data.resp["model_id"].nunique()
+    assert len(rk) == 2 * len(set(data.judg["evaluator_id"])) * n_models
+    sums = rk.groupby(["metric", "evaluator_id"])["rank"].sum()  # average ranks keep the sum
+    assert (sums - n_models * (n_models + 1) / 2).abs().max() < 1e-9
+    prim = rk[rk["evaluator_id"] == cfg.experiment.analysis.primary_evaluator]
+    assert (prim["tau_vs_primary"] - 1).abs().max() < 1e-9
+    te = pd.read_csv(tmp_path / "rq5_thinking_effect.csv")
+    pairs = rq5.thinking_pairs(cfg, set(data.resp["model_id"]))
+    assert set(te["family"]) == set(pairs) and len(pairs) == 4
+    assert len(te) == len(set(data.judg["evaluator_id"])) * len(pairs) * 2
+    assert (te["delta"] - (te["thinking"] - te["standard"])).abs().max() < 1e-9
+    assert ((te["delta_lo"] <= te["delta"] + 1e-9) & (te["delta"] <= te["delta_hi"] + 1e-9)).all()
+    assert all(not cfg.models[m].is_reasoning for m in te["standard_model"])
+    assert all(cfg.models[m].is_reasoning for m in te["thinking_model"])
+
+
+def test_rq5_agreement_follows_include_borderline(world, tmp_path):
+    cfg, data = world
+    rq5.run(data, cfg, tmp_path / "clear")
+    cfg.experiment.analysis.include_borderline = True
+    rq5.run(data, cfg, tmp_path / "all")
+    clear, both = (pd.read_csv(tmp_path / d / "rq5_alpha.csv").iloc[0] for d in ("clear", "all"))
+    assert (clear["tiers"], both["tiers"]) == ("clear", "clear+borderline")
+    assert clear["n_items"] < both["n_items"]
+    k = pd.read_csv(tmp_path / "all" / "rq5_kappa_pairwise.csv")
+    assert set(k["tiers"]) == {"clear+borderline"}
+
+
+def test_rq5_limited_to_primary_splits(world, tmp_path):
+    cfg, data = world
+    keep = sorted(set(data.resp["split"]))[0]
+    cfg.experiment.analysis.primary_splits = [keep]
+    rq5.run(data, cfg, tmp_path)
+    alpha = pd.read_csv(tmp_path / "rq5_alpha.csv").iloc[0]
+    n_keep = data.resp[(data.resp["split"] == keep) & (data.resp["sample_idx"] == 0)]
+    assert 0 < alpha["n_items"] <= len(n_keep) < len(data.resp)
 
 
 def test_analyze_all_reproducible(world, monkeypatch):
@@ -127,3 +180,32 @@ def test_analyze_all_reproducible(world, monkeypatch):
     assert any("responses.parquet" in i for i in manifest["extra"]["inputs"])
     for rq in ("rq1", "rq2", "rq3", "rq4", "rq5"):
         assert (runs[0] / rq).is_dir()
+
+
+def test_analyze_borderline_flag(world, monkeypatch):
+    import json
+
+    cfg, _ = world
+    monkeypatch.setitem(cli._state, "cfg", cfg)
+    for flag in ("--clear-only", "--borderline"):
+        res = CliRunner().invoke(cli.app, ["analyze", "rq1", flag])
+        assert res.exit_code == 0, res.output
+    # run ids from the same second sort by their random suffix, so pair each run with its
+    # manifest rather than relying on directory order
+    seen = {}
+    for r in (cfg.path("results_dir") / "analysis").iterdir():
+        flag = json.loads(next(r.glob("*.json")).read_text())["args"]["include_borderline"]
+        seen[flag] = pd.read_csv(r / "rq1" / "rq1_metrics_primary.csv")["tiers"].unique()
+    assert {k: v.tolist() for k, v in seen.items()} == {False: ["clear"],
+                                                        True: ["clear+borderline"]}
+
+
+def test_primary_splits_select_the_analysed_sample(world):
+    cfg, data = world
+    default = rq1.model_metrics(data, cfg, "judge_a", "partial_as_refusal")
+    cfg.experiment.analysis.primary_splits = ["rq3"]
+    rq3_only = rq1.model_metrics(data, cfg, "judge_a", "partial_as_refusal")
+    assert (rq3_only["n_responses"] < default["n_responses"]).all()
+    cfg.experiment.analysis.primary_splits = ["pilot"]  # the synthetic world has no pilot rows
+    empty = rq1.model_metrics(data, cfg, "judge_a", "partial_as_refusal")
+    assert empty.empty or empty["n_responses"].sum() == 0

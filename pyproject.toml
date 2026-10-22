@@ -2,7 +2,7 @@
 name = "srs"
 version = "0.1.0"
 description = "Safety refusal study: under- and over-refusal of LLMs, and the reliability of the evaluators that measure it"
-readme = "research_ideas.md"
+readme = "README.md"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "openai>=1.50",
@@ -23,6 +23,7 @@ dependencies = [
     "krippendorff>=0.8",
     "streamlit>=1.39",
     "matplotlib>=3.9",
+    "anthropic>=1.15.0",
 ]
 
 [project.scripts]

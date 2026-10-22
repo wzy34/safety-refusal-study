@@ -77,8 +77,8 @@ The system SHALL report:
 - **THEN** each item is weighted by the inverse of its inclusion probability
 
 #### Scenario: Self-preference comparison
-- **WHEN** RQ5 analysis runs for Judge A (Gemini)
-- **THEN** it reports Judge A's agreement with the reference on Gemini-family responses and on other-family responses separately
+- **WHEN** RQ5 analysis runs for Judge B (DeepSeek)
+- **THEN** it reports Judge B's agreement with the reference on DeepSeek-family responses and on other-family responses separately
 
 ### Requirement: Reproducible outputs
 Every analysis command SHALL write its tables (CSV) and figures (PNG and PDF) to a results directory for its run, with a manifest naming the input files and the primary evaluator. Bootstrap procedures SHALL use a configured seed.

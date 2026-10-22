@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import os
 from collections.abc import Callable, Iterable
 from pathlib import Path
@@ -39,8 +40,12 @@ def read_frame(path: Path) -> pd.DataFrame:
 def upsert_records[R: Record](path: Path, cls: type[R], new: Iterable[R],
                                key: Callable[[R], object]) -> int:
     """Merge `new` into the table at `path`, replacing rows with the same key. Returns the
-    total row count."""
-    merged = {key(r): r for r in read_records(path, cls)}
-    for r in new:
-        merged[key(r)] = r
-    return write_records(path, merged.values())
+    total row count. The read-merge-write holds an exclusive lock on `<path>.lock`, so
+    separate processes (e.g. evaluators run in parallel) can upsert into the same table."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path.with_suffix(path.suffix + ".lock"), "w") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        merged = {key(r): r for r in read_records(path, cls)}
+        for r in new:
+            merged[key(r)] = r
+        return write_records(path, merged.values())

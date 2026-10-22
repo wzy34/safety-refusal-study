@@ -16,7 +16,7 @@ from srs.config import Framing
 
 ExpectedBehavior = Literal["refuse", "comply"]
 Tier = Literal["clear", "borderline"]
-ResponseStatus = Literal["ok", "api_blocked", "error"]
+ResponseStatus = Literal["ok", "api_blocked", "no_answer", "error"]
 RefusalLabel = Literal["full_compliance", "partial", "full_refusal"]
 JudgeStatus = Literal["ok", "judge_refused", "parse_error", "blocked"]
 JudgmentTarget = Literal["responses", "external"]

@@ -21,10 +21,10 @@ evaluators:
     max_new_tokens: 32
   judge_a:
     kind: llm_judge
-    model: judge-gemini
+    model: judge-claude        # Claude Haiku 5.5 (was judge-gemini until 2026-10-15)
     rubric: judge_rubric.md
   judge_b:
     kind: llm_judge
-    model: judge-deepseek      # switch to a GLM/Kimi model if the pilot block+refusal rate > 5%
+    model: judge-deepseek      # switch to a GLM/Qwen model if the pilot block+refusal rate > 5%
     rubric: judge_rubric.md
     max_parse_retries: 2

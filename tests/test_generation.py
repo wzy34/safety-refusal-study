@@ -20,7 +20,7 @@ from srs.llm.fake import (
 )
 from srs.schemas import Response
 
-MODELS = ["gemini-a", "deepseek-a", "kimi-a", "glm-a"]
+MODELS = ["gemini-a", "deepseek-a", "qwen-a", "glm-a"]
 
 
 def _prompts(n=6, split="pilot"):
@@ -69,6 +69,26 @@ def test_error_responses_retried_next_run(cfg, tmp_path):
     assert [r.status for r in read_records(path, Response)] == ["ok"]
 
 
+def test_empty_answer_is_no_answer_and_not_retried(cfg, tmp_path):
+    path = tmp_path / "r.parquet"
+    jobs = runner.plan_jobs(cfg, _prompts(1), ["deepseek-b"])
+    queue = [fake_response("", reasoning="thinking...", finish_reason="length")]
+    first = _run(cfg, make_fake_client(cfg, queue=queue), jobs, path)
+    assert first == {"skipped_done": 0, "no_answer": 1}
+    [r] = read_records(path, Response)
+    assert r.status == "no_answer" and r.final_text == "" and r.reasoning_text == "thinking..."
+    assert _run(cfg, make_fake_client(cfg), jobs, path) == {"skipped_done": 1}
+
+
+def test_gemini_content_filter_detail_is_blocked(cfg):
+    client = make_fake_client(cfg, queue=[fake_response(
+        "", finish_reason="content_filter: PROHIBITED_CONTENT")])
+    r = asyncio.run(runner.run_job(client, runner.plan_jobs(cfg, _prompts(1), ["gemini-a"])[0],
+                                   "run"))
+    assert r.status == "api_blocked" and r.block_turn == 1 and r.final_text is None
+    assert r.error == "content_filter: PROHIBITED_CONTENT"
+
+
 def test_reasoning_kept_separately(cfg, tmp_path):
     client = make_fake_client(cfg, queue=[fake_response("Final.", reasoning="thinking...")])
     r = asyncio.run(runner.run_job(client, runner.plan_jobs(cfg, _prompts(1), ["deepseek-b"])[0],
@@ -79,7 +99,7 @@ def test_reasoning_kept_separately(cfg, tmp_path):
 
 def test_multiturn_live_transcript(cfg):
     client = make_fake_client(cfg)
-    job = runner.plan_jobs(cfg, [_multiturn()], ["kimi-a"])[0]
+    job = runner.plan_jobs(cfg, [_multiturn()], ["qwen-a"])[0]
     r = asyncio.run(runner.run_job(client, job, "run"))
     assert [m.role for m in r.transcript] == ["user", "assistant"] * 3
     assert r.status == "ok" and r.final_text == "Fake reply to: the request"
@@ -108,7 +128,7 @@ def test_stability_subset(cfg, tmp_path):
     prompts = _prompts(10, split="main")
     subset = runner.stability_prompts(cfg, prompts)
     assert len(subset) == 4
-    jobs = runner.plan_jobs(cfg, subset, ["gemini-a", "kimi-a"], stability=True)
+    jobs = runner.plan_jobs(cfg, subset, ["gemini-a", "qwen-a"], stability=True)
     client = make_fake_client(cfg)
     path = tmp_path / "r.parquet"
     _run(cfg, client, jobs, path)
@@ -148,3 +168,61 @@ def test_cli_generate_end_to_end(cfg, monkeypatch):
     m = json.loads(manifests[0].read_text())
     assert {r.run_id for r in rs} == {m["run_id"]} and m["counts"]["ok"] == 8
     assert m["args"]["models"] == ["gemini-a", "glm-b"]
+
+
+def test_cli_generate_framed_only(cfg, monkeypatch):
+    # intents 0-2 in rq3; only intent 0 has a framing (multiturn)
+    prompts = _prompts(3, "rq3") + [_multiturn("rq3")]
+    write_records(prompts_path(cfg), prompts)
+    by_id = {p.prompt_id: p for p in prompts}
+    client = make_fake_client(cfg)
+    monkeypatch.setattr(cli, "_real_client", lambda c, ids: client)
+    monkeypatch.setitem(cli._state, "cfg", cfg)
+    res = CliRunner().invoke(cli.app, ["generate", "--set", "rq3", "--models", "gemini-a",
+                                       "--framed-only"])
+    assert res.exit_code == 0, res.output
+    rs = read_records(runner.responses_path(cfg), Response)
+    assert sorted(by_id[r.prompt_id].framing for r in rs) == ["direct", "multiturn"]
+    assert len({by_id[r.prompt_id].intent_id for r in rs}) == 1
+    res = CliRunner().invoke(cli.app, ["generate", "--set", "pilot", "--framed-only"])
+    assert res.exit_code == 2
+
+
+def test_reasoning_models_get_reasoning_max_tokens(cfg):
+    cfg.experiment.generation.reasoning_max_tokens = 4096
+    jobs = runner.plan_jobs(cfg, _prompts(1), ["gemini-a", "gemini-b"])
+    limits = {j.model_id: j.params.max_tokens for j in jobs}
+    assert limits == {"gemini-a": 1024, "gemini-b": 4096}
+    # non-reasoning params are unchanged, so their response ids stay the same
+    assert jobs[0].gen_params == runner.primary_params(cfg)
+
+
+def test_providers_run_in_parallel_without_chunk_barrier(cfg, tmp_path, monkeypatch):
+    """A stalled provider must not hold up another provider's jobs (or their checkpoints)."""
+    monkeypatch.setattr(runner, "CHUNK", 2)
+    path = tmp_path / "r.parquet"
+    jobs = runner.plan_jobs(cfg, _prompts(4), ["gemini-a", "deepseek-a"])  # google jobs first
+    client = make_fake_client(cfg)
+    release = asyncio.Event()
+    inner = client.transport.create
+
+    async def create(provider, body, extra_body, timeout):
+        if provider == "google":
+            await release.wait()
+        return await inner(provider, body, extra_body, timeout)
+
+    client.transport.create = create
+
+    async def main():
+        task = asyncio.create_task(runner.run_generation(cfg, client, jobs, "run-1", path))
+        while sum(p == "deepseek" for p, _ in client.transport.calls) < 4:
+            await asyncio.sleep(0.01)
+        await asyncio.sleep(0.05)  # let the deepseek checkpoints flush
+        stalled = {r.model_id for r in read_records(path, Response)}
+        release.set()
+        return stalled, await task
+
+    stalled, counts = asyncio.run(asyncio.wait_for(main(), timeout=5))
+    assert stalled == {"deepseek-a"}
+    assert counts == {"skipped_done": 0, "ok": 8}
+    assert len(read_records(path, Response)) == 8

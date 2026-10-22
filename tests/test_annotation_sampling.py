@@ -6,7 +6,7 @@ from srs.data.sources._common import make_prompt
 from srs.reference.sampling import allocate, draw_sample, eligible_units, write_sample
 from srs.schemas import Judgment, Message, Response
 
-MODELS = ["gemini-a", "glm-a", "kimi-a"]
+MODELS = ["gemini-a", "glm-a", "qwen-a"]
 
 
 def _world(n_prompts=40):

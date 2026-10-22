@@ -82,3 +82,18 @@ def test_evaluate_external_kept_apart(cfg, monkeypatch):
     assert all(j.target == "external" for j in ext)
     assert len(ext) == 2 * (2 + 2 + 15)  # jbb_judge + harmbench_val + xstest_completions
     assert not judgments_path(cfg, "responses").exists()
+
+
+def test_evaluate_external_sources_filter(cfg, monkeypatch):
+    shutil.copytree(RAW, cfg.path("data_dir") / "raw")
+    _setup(cfg, monkeypatch)
+    res = CliRunner().invoke(cli.app, ["evaluate", "--target", "external", "--evaluators",
+                                       "judge_a", "--sources", "harmbench_val",
+                                       "--sources", "jbb_judge"])
+    assert res.exit_code == 0, res.output
+    ext = read_records(judgments_path(cfg, "external"), Judgment)
+    assert {j.evaluator_id for j in ext} == {"judge_a"} and len(ext) == 2 + 2
+    bad = CliRunner().invoke(cli.app, ["evaluate", "--target", "external", "--sources", "nope"])
+    assert bad.exit_code == 2 and "nope" in bad.output
+    wrong = CliRunner().invoke(cli.app, ["evaluate", "--sources", "jbb_judge"])
+    assert wrong.exit_code == 2

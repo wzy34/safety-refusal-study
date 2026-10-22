@@ -3,7 +3,7 @@
 - [x] 1.1 Run `git init` and add a `.gitignore` covering `data/`, `results/`, `models/`, `.env`, the cache DB and `.venv`; verify with `git check-ignore data/x results/x models/x .env`
 - [x] 1.2 Install uv, create `pyproject.toml` (Python 3.12, `srs` package under `src/`, dependencies from the proposal, pytest and ruff as dev dependencies) and `uv.lock`; verify `uv sync` succeeds and `uv run python -c "import srs"` works
 - [x] 1.3 Create the package skeleton from design D5 (empty modules plus `__init__.py`) and `tests/`; verify `uv run pytest` runs (0 tests, no errors)
-- [x] 1.4 Add `.env.example` listing `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY`, `ZHIPU_API_KEY` and `HF_TOKEN`; verify the file exists and contains no real values
+- [x] 1.4 Add `.env.example` listing `GEMINI_API_KEY`, `DEEPSEEK_API_KEY`, `DASHSCOPE_API_KEY`, `ZHIPU_API_KEY` and `HF_TOKEN`; verify the file exists and contains no real values
 
 ## 2. Configuration, schemas and manifests
 
@@ -83,7 +83,7 @@
 
 - [ ] 9.1 Fill in real model IDs and endpoints, run `srs llm ping`, then `srs generate --set pilot --dry-run`; verify that all 8 models respond and record the cost estimate
 - [ ] 9.2 Run pilot generation (50 intents × 8 models, plus a small RQ3 slice); verify coverage in the manifest counts and record the observed block codes for each provider in `providers.yaml`
-- [ ] 9.3 Run all 5 evaluators on the pilot and on the external reference sets; verify that judge refusal/block/parse rates are reported, and switch Judge B to GLM or Kimi if DeepSeek's combined rate exceeds 5%
+- [ ] 9.3 Run all 5 evaluators on the pilot and on the external reference sets; verify that judge refusal/block/parse rates are reported, and switch Judge B to GLM or Qwen if DeepSeek's combined rate exceeds 5%
 - [ ] 9.4 Check WildGuard MLX fidelity on WildGuardTest against the published F1; verify the gap is 2 points or less, otherwise switch to fp16 MPS per the design
 - [ ] 9.5 Self-annotate a 100-item pilot calibration sample and select the primary evaluator based on agreement with the reference; record the choice and its rationale in `experiment.yaml`
 - [ ] 9.6 Review pilot outputs end to end (analysis runs on pilot data, cost extrapolation for the main run), then freeze judge and rewrite prompts; verify that the frozen template hashes are recorded in `results/qa/pilot_review.md`

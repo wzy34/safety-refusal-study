@@ -8,6 +8,8 @@ Files in an annotation directory (results/annotations/<name>/):
   human_labels.parquet   import output: pass 1, pass 2 and final labels (pass_num 0)
   reliability.json/.md   test-retest kappa and the disagreement list
 
+A single-pass import (pilot calibration) takes the pass-1 labels as final.
+
 Blinding: the harmful question is asked for every item, because asking it only for
 refuse-expected prompts would reveal the expected behavior.
 """
@@ -153,15 +155,37 @@ def final_labels(p1: list[HumanLabel], p2: list[HumanLabel], adjudicated: list[H
     return finals, pending
 
 
-def import_annotations(d: Path) -> dict[str, Any]:
-    """Combine passes into human_labels.parquet and write the reliability report."""
+def single_pass_labels(p1: list[HumanLabel], item_ids: list[str]
+                       ) -> tuple[list[HumanLabel], list[str]]:
+    """Pass-1 labels taken as final (pilot calibration, no test-retest). Returns (finals,
+    item ids not yet labeled in pass 1)."""
+    finals = [a.model_copy(update={"pass_num": ADJUDICATED_PASS, "seconds": None,
+                                   "notes": "single_pass"}) for a in p1]
+    labeled = {a.item_id for a in p1}
+    return finals, [i for i in item_ids if i not in labeled]
+
+
+def import_annotations(d: Path, single_pass: bool = False) -> dict[str, Any]:
+    """Combine passes into human_labels.parquet and write the reliability report. With
+    `single_pass`, pass-1 labels are the final labels and no pass 2 is expected."""
     p1, p2, adj = load_labels(d, 1), load_labels(d, 2), load_labels(d, ADJUDICATED_PASS)
+    if single_pass and (p2 or adj):
+        raise ValueError(f"{d} has pass-2 or adjudication labels; import it without "
+                         "single_pass")
     report = kappa_report(p1, p2)
-    finals, pending = final_labels(p1, p2, adj)
-    report.update({"n_pass1": len(p1), "n_pass2": len(p2), "n_final": len(finals),
-                   "pending_adjudication": pending})
+    if single_pass:
+        finals, pending = single_pass_labels(p1, [x["item_id"] for x in load_items(d)])
+    else:
+        finals, pending = final_labels(p1, p2, adj)
+    report.update({"single_pass": single_pass, "n_pass1": len(p1), "n_pass2": len(p2),
+                   "n_final": len(finals), "pending_adjudication": pending})
     write_records(d / "human_labels.parquet", [*p1, *p2, *finals])
     (d / "reliability.json").write_text(json.dumps(report, indent=2))
+    if single_pass:
+        (d / "reliability.md").write_text(
+            "# Single-pass labels\n\n- pass-1 labels used as final; no test-retest kappa\n"
+            f"- final labels: {len(finals)}; not yet labeled: {len(pending)}\n")
+        return report
     lines = ["# Test-retest reliability\n",
              f"- items with both passes: {report['n_items']}",
              f"- Cohen's kappa, refusal (3-class): {report['refusal_kappa']}",

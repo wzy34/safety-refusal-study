@@ -58,6 +58,24 @@ def from_openai_exception(exc: Exception) -> ProviderError:
     return ProviderError(message=f"{type(exc).__name__}: {exc}")
 
 
+def from_anthropic_exception(exc: Exception) -> ProviderError:
+    import anthropic
+
+    # APITimeoutError subclasses APIConnectionError, so it is checked first.
+    if isinstance(exc, anthropic.APITimeoutError):
+        return ProviderError(message=str(exc), is_timeout=True)
+    if isinstance(exc, anthropic.APIConnectionError):
+        return ProviderError(message=str(exc), is_connection=True)
+    if isinstance(exc, anthropic.APIStatusError):
+        body = exc.body
+        err = body.get("error", body) if isinstance(body, dict) else {}
+        err = err if isinstance(err, dict) else {}
+        etype = err.get("type")  # e.g. rate_limit_error, overloaded_error, invalid_request_error
+        return ProviderError(status_code=exc.status_code, code=etype, type=etype,
+                             message=str(err.get("message") or exc.message), body=body)
+    return ProviderError(message=f"{type(exc).__name__}: {exc}")
+
+
 def classify_error(provider: ProviderConfig, err: ProviderError) -> ErrorKind:
     if is_block(provider, err):
         return "blocked"
@@ -83,4 +101,8 @@ def block_code(err: ProviderError) -> str:
 
 
 def is_blocked_finish(provider: ProviderConfig, finish_reason: str | None) -> bool:
-    return finish_reason is not None and finish_reason in provider.blocked_finish_reasons
+    """Match on the part before any ':' detail, e.g. Gemini's
+    "content_filter: PROHIBITED_CONTENT" or "content_filter: RECITATION"."""
+    if finish_reason is None:
+        return False
+    return finish_reason.split(":", 1)[0].strip() in provider.blocked_finish_reasons

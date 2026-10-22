@@ -1,8 +1,9 @@
-"""The OpenAI-compatible async chat client (design D1, D3).
+"""The async chat client (design D1, D3).
 
 `ChatClient.complete()` = adapter -> cache lookup -> per-provider limiter -> retries with
 backoff -> parse into a `Completion`. Network access sits behind a `Transport`, so the same
-code path runs against the real APIs (`OpenAITransport`) or scripted fakes (`srs.llm.fake`).
+code path runs against the real APIs (`ProviderTransport`, which picks `OpenAITransport` or
+`AnthropicTransport` per provider) or scripted fakes (`srs.llm.fake`).
 """
 
 from __future__ import annotations
@@ -31,6 +32,12 @@ from srs.llm.ratelimit import ProviderLimiter
 log = logging.getLogger(__name__)
 
 _THINK = re.compile(r"^\s*<think>(.*?)</think>\s*", re.DOTALL)
+
+# The SDK `timeout` bounds each network read, not the whole call, so a connection the server
+# holds open without sending anything never times out (seen with Bailian and Zhipu). Each
+# attempt therefore also gets a hard total deadline of `timeout_s * DEADLINE_FACTOR`; the
+# slowest successful call in the pilot and main runs took 174 s.
+DEADLINE_FACTOR = 3
 
 
 class Completion(BaseModel):
@@ -83,6 +90,21 @@ class OpenAITransport:
         return resp.model_dump(mode="json")
 
 
+class ProviderTransport:
+    """Routes each request to the transport for its provider's `api` (providers.yaml)."""
+
+    def __init__(self, cfg: StudyConfig):
+        from srs.llm.anthropic_api import AnthropicTransport
+
+        self.cfg = cfg
+        self._by_api: dict[str, Transport] = {"openai": OpenAITransport(cfg),
+                                              "anthropic": AnthropicTransport(cfg)}
+
+    async def create(self, provider, body, extra_body, timeout):
+        transport = self._by_api[self.cfg.providers[provider].api]
+        return await transport.create(provider, body, extra_body, timeout)
+
+
 def split_reasoning(message: dict[str, Any]) -> tuple[str | None, str | None]:
     """Return (final text, reasoning). Reasoning comes from `reasoning_content`/`reasoning`
     fields or a leading <think> block, and is removed from the final text."""
@@ -114,7 +136,7 @@ class ChatClient:
         if unset:
             raise ConfigError(f"models.yaml: model id not set for {unset} (still SET_ME_...)")
         require_provider_keys(cfg, model_ids)
-        return cls(cfg, OpenAITransport(cfg), RequestCache(cfg.path("cache_path")))
+        return cls(cfg, ProviderTransport(cfg), RequestCache(cfg.path("cache_path")))
 
     def _limiter(self, provider: str) -> ProviderLimiter:
         if provider not in self._limiters:
@@ -159,8 +181,7 @@ class ChatClient:
                 with attempt:
                     async with self._limiter(provider).slot():
                         start = time.monotonic()
-                        raw = await self.transport.create(provider, req.body, req.extra_body,
-                                                          pc.timeout_s)
+                        raw = await self._create_with_deadline(provider, req, pc.timeout_s)
             payload = {"kind": "response", "raw": raw,
                        "latency_s": round(time.monotonic() - start, 3)}
         except ProviderError as e:
@@ -179,6 +200,16 @@ class ChatClient:
         log.debug("model=%s request=%s status=%s finish=%s", model_id, key[:12], comp.status,
                   comp.finish_reason)
         return comp
+
+    async def _create_with_deadline(self, provider: str, req: Any,
+                                    timeout_s: float) -> dict[str, Any]:
+        deadline = timeout_s * DEADLINE_FACTOR
+        try:
+            return await asyncio.wait_for(
+                self.transport.create(provider, req.body, req.extra_body, timeout_s), deadline)
+        except TimeoutError:
+            raise ProviderError(message=f"no complete response within {deadline:g}s",
+                                is_timeout=True) from None
 
     def _from_payload(self, provider: str, payload: dict[str, Any], *, cached: bool,
                       **common: Any) -> Completion:

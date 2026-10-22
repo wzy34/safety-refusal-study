@@ -53,51 +53,52 @@ source_maps:
     Non-violent crimes: illegal_activity
     Sexual content: sexual
     Violence: violence_physical_harm
-  sorry_bench:   # SORRY-Bench 2024-06 category numbers (names per its meta_info)
-    "1": hate_harassment             # Personal insulting words
-    "2": hate_harassment             # Social-group insulting words
-    "3": hate_harassment             # Threatening words
-    "4": sexual                      # Lewd and obscene words
-    "5": misinformation_persuasion   # Libelous words
-    "6": self_harm_health            # Self-harm
-    "7": violence_physical_harm      # Violent crimes
-    "8": hate_harassment             # Harassment
-    "9": sexual                      # Sexual crimes
+  sorry_bench:   # SORRY-Bench 2024-06, 45 categories numbered from 1 as in its meta_info
+    "1":  hate_harassment            # Personal insulting words
+    "2":  hate_harassment            # Social-group insulting words
+    "3":  hate_harassment            # Threatening words
+    "4":  sexual                     # Lewd and obscene words
+    "5":  misinformation_persuasion  # Libelous words
+    "6":  self_harm_health           # Self-harm
+    "7":  violence_physical_harm     # Violent crimes
+    "8":  hate_harassment            # Harassment
+    "9":  sexual                     # Sexual crimes
     "10": illegal_activity           # Property crimes
     "11": illegal_activity           # Public order crimes
-    "12": cybercrime                 # System intrusion / hacking
-    "13": cybercrime                 # Malware code generation
-    "14": fraud_deception            # Fraud, scams, deception
-    "15": fraud_deception            # Financial crimes
-    "16": illegal_activity           # Intellectual property infringement
-    "17": privacy                    # Personal identifiable information violations
-    "18": illegal_activity           # Illegal crafting, manufacturing and distribution
-    "19": violence_physical_harm     # Terrorism
-    "20": violence_physical_harm     # Child-related crimes
-    "21": violence_physical_harm     # Animal-related crimes
-    "22": illegal_activity           # Environmental crimes
-    "23": illegal_activity           # Evasion of law enforcement
-    "24": violence_physical_harm     # Human elimination and world domination
-    "25": sexual                     # Advice on adult content
-    "26": sexual                     # Sexual explicit content generation
-    "27": violence_physical_harm     # Non-sexual explicit content generation
-    "28": misinformation_persuasion  # Fake news generation
-    "29": fraud_deception            # False advertising
-    "30": hate_harassment            # Advice on discrimination behaviours
-    "31": violence_physical_harm     # Military use
-    "32": misinformation_persuasion  # Political belief promotion
-    "33": misinformation_persuasion  # Ethical belief promotion
-    "34": misinformation_persuasion  # Religion promotion
-    "35": hate_harassment            # Social stereotype promotion
-    "36": hate_harassment            # Extremist content promotion
-    "37": misinformation_persuasion  # Conspiracy theories promotion
-    "38": misinformation_persuasion  # False common knowledge promotion
-    "39": self_harm_health           # Harmful and unhealthy behaviours promotion
-    "40": specialized_advice         # Medical advice
-    "41": specialized_advice         # Financial advice
-    "42": specialized_advice         # Legal consulting advice
-    "43": specialized_advice         # Governance decision advice
-    "44": specialized_advice         # Dangerous machinery operation advice
+    "12": fraud_deception            # Impersonation
+    "13": cybercrime                 # System intrusion / hacking
+    "14": cybercrime                 # Malware code generation
+    "15": fraud_deception            # Fraud, scams, deception
+    "16": fraud_deception            # Financial crimes
+    "17": illegal_activity           # Intellectual property infringement
+    "18": privacy                    # Personal identifiable information violations
+    "19": illegal_activity           # Illegal crafting, manufacturing and distribution
+    "20": violence_physical_harm     # Terrorism
+    "21": violence_physical_harm     # Child-related crimes
+    "22": violence_physical_harm     # Animal-related crimes
+    "23": illegal_activity           # Environmental crimes
+    "24": illegal_activity           # Evasion of law enforcement
+    "25": violence_physical_harm     # Human elimination and world domination
+    "26": sexual                     # Advice on adult content
+    "27": sexual                     # Sexual explicit content generation
+    "28": violence_physical_harm     # Non-sexual explicit content generation
+    "29": misinformation_persuasion  # Fake news generation
+    "30": fraud_deception            # False advertising
+    "31": hate_harassment            # Advice on discrimination behaviours
+    "32": violence_physical_harm     # Military use
+    "33": misinformation_persuasion  # Political belief promotion
+    "34": misinformation_persuasion  # Ethical belief promotion
+    "35": misinformation_persuasion  # Religion promotion
+    "36": hate_harassment            # Social stereotype promotion
+    "37": hate_harassment            # Extremist content promotion
+    "38": misinformation_persuasion  # Conspiracy theories promotion
+    "39": misinformation_persuasion  # False common knowledge promotion
+    "40": self_harm_health           # Harmful and unhealthy behaviours promotion
+    "41": specialized_advice         # Medical advice
+    "42": specialized_advice         # Financial advice
+    "43": specialized_advice         # Legal consulting advice
+    "44": specialized_advice         # Governance decision advice
+    "45": specialized_advice         # Dangerous machinery operation advice
 
 # XSTest has prompt *types* (homonyms, safe contexts, ...), not risk categories.
 llm_assigned_sources: [xstest]

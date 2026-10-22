@@ -21,6 +21,8 @@ from srs.schemas import Judgment, JudgmentTarget, ReferenceItem, Response
 
 log = logging.getLogger(__name__)
 
+EVAL_CHUNK = 1000  # judgments are written to disk after every chunk of items
+
 
 @dataclass(frozen=True)
 class Turn:
@@ -114,7 +116,8 @@ def eligible_responses(responses: list[Response]) -> tuple[list[EvalItem], Count
 def run_evaluators(evaluators: list[Evaluator], items: list[EvalItem], out_path: Path,
                    target: JudgmentTarget, run_id: str | None = None) -> dict[str, int]:
     """Judge items with each evaluator, skipping (item, evaluator, version) triples already
-    in `out_path`. Writes after each evaluator. Returns counts per evaluator and status."""
+    in `out_path`. Writes after every `EVAL_CHUNK` items, so an interrupted run resumes.
+    Returns counts per evaluator and status."""
     counts: Counter = Counter()
     for ev in evaluators:
         version = ev.version()
@@ -123,13 +126,19 @@ def run_evaluators(evaluators: list[Evaluator], items: list[EvalItem], out_path:
         counts[f"{ev.id}:skipped_done"] = len(items) - len(todo)
         if not todo:
             continue
-        new = ev.evaluate(todo)
-        for j in new:
-            j.target = target
-            j.run_id = run_id
-            counts[f"{ev.id}:{j.status}"] += 1
-        counts[f"{ev.id}:not_judged"] = len(todo) - len(new)
-        upsert_records(out_path, Judgment, new, key=judgment_key)
-        log.info("evaluator %s v%s: %d judged, %d not judged", ev.id, version, len(new),
-                 len(todo) - len(new))
+        n_new = 0
+        for start in range(0, len(todo), EVAL_CHUNK):
+            chunk = todo[start:start + EVAL_CHUNK]
+            new = ev.evaluate(chunk)
+            for j in new:
+                j.target = target
+                j.run_id = run_id
+                counts[f"{ev.id}:{j.status}"] += 1
+            counts[f"{ev.id}:not_judged"] += len(chunk) - len(new)
+            n_new += len(new)
+            upsert_records(out_path, Judgment, new, key=judgment_key)
+            log.info("evaluator %s v%s: %d/%d done", ev.id, version, start + len(chunk),
+                     len(todo))
+        log.info("evaluator %s v%s: %d judged, %d not judged", ev.id, version, n_new,
+                 len(todo) - n_new)
     return {k: v for k, v in counts.items() if v}

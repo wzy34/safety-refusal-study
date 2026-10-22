@@ -124,6 +124,23 @@ def test_kappa_known_and_adjudication(ann_dir):
     assert Path(ann_dir / "reliability.md").exists()
 
 
+def test_single_pass_import_uses_pass1_as_final(ann_dir):
+    for i in range(8):
+        A.save_label(ann_dir, HumanLabel(item_id=f"item{i:02d}", pass_num=1,
+                                         refusal="full_refusal", harmful=i == 3))
+    rep = A.import_annotations(ann_dir, single_pass=True)
+    assert rep["single_pass"] and rep["n_final"] == 8
+    assert rep["pending_adjudication"] == ["item08", "item09"]
+    finals = {x.item_id: x for x in A.read_records(ann_dir / "human_labels.parquet",
+                                                    HumanLabel) if x.pass_num == 0}
+    assert len(finals) == 8 and finals["item03"].harmful is True
+    assert finals["item00"].notes == "single_pass"
+
+    A.save_label(ann_dir, HumanLabel(item_id="item00", pass_num=2, refusal="partial"))
+    with pytest.raises(ValueError):
+        A.import_annotations(ann_dir, single_pass=True)
+
+
 def test_adjudication_app_shows_only_disagreements(ann_dir, monkeypatch):
     for i in range(10):
         for n in (1, 2):

@@ -17,8 +17,8 @@ data_app = typer.Typer(help="Fetch benchmarks, build the prompt set and render f
 classic_app = typer.Typer(help="Train the RoBERTa refusal classifier.", no_args_is_help=True)
 annotate_app = typer.Typer(help="Draw the annotation sample, run the blind app, import labels.",
                            no_args_is_help=True)
-analyze_app = typer.Typer(help="Compute metrics, tests, tables and figures for RQ1-RQ5.",
-                          no_args_is_help=True)
+analyze_app = typer.Typer(help="Compute metrics, tests, tables and figures for RQ1-RQ5 and "
+                          "the stability check.", no_args_is_help=True)
 llm_app = typer.Typer(help="LLM client utilities.", no_args_is_help=True)
 app.add_typer(data_app, name="data")
 app.add_typer(classic_app, name="classic")
@@ -140,6 +140,8 @@ def generate(
     limit: Annotated[int | None, typer.Option(help="At most N prompts per model.")] = None,
     stability: Annotated[bool, typer.Option(
         help="Run the stability subset (samples 1..n at the stability temperature).")] = False,
+    framed_only: Annotated[bool, typer.Option(
+        help="RQ3 only: keep intents that already have framings (e.g. a pilot slice).")] = False,
     dry_run: Annotated[bool, typer.Option(
         help="Report planned calls and estimated tokens; send nothing.")] = False,
 ) -> None:
@@ -167,6 +169,13 @@ def generate(
         selected = runner.stability_prompts(cfg, prompts)
     else:
         selected = runner.select_split(prompts, split)
+    if framed_only:
+        if split != "rq3" or stability:
+            typer.secho("--framed-only applies to --set rq3 without --stability",
+                        fg=typer.colors.RED, err=True)
+            raise typer.Exit(2)
+        framed = {p.intent_id for p in selected if p.framing != "direct"}
+        selected = [p for p in selected if p.intent_id in framed]
     if not selected:
         typer.secho(f"no prompts in split '{split}' (run `srs data build` first?)",
                     fg=typer.colors.RED, err=True)
@@ -184,7 +193,8 @@ def generate(
         typer.echo(f"total calls: {sum(r['calls'] for r in rows)} (dry run, nothing sent)")
         return
     client = _real_client(cfg, model_ids)
-    args = {"set": split, "models": model_ids, "limit": limit, "stability": stability}
+    args = {"set": split, "models": model_ids, "limit": limit, "stability": stability,
+            "framed_only": framed_only}
     with RunManifest("generate", cfg, args=args) as m:
         counts = asyncio.run(runner.run_generation(cfg, client, jobs, m.run_id))
         m.counts = counts
@@ -242,6 +252,9 @@ def evaluate(
     target: Annotated[str, typer.Option(
         help="'responses' (study responses) or 'external' (human-labeled reference sets).")
     ] = "responses",
+    sources: Annotated[list[str] | None, typer.Option(
+        help="External target only: judge just these reference sets (e.g. harmbench_val).")
+    ] = None,
 ) -> None:
     """Label responses (or external reference items) with the configured evaluators."""
     from srs.data.build import processed_dir
@@ -262,6 +275,9 @@ def evaluate(
     if target not in ("responses", "external"):
         typer.secho("--target must be 'responses' or 'external'", fg=typer.colors.RED, err=True)
         raise typer.Exit(2)
+    if sources and target != "external":
+        typer.secho("--sources applies to --target external", fg=typer.colors.RED, err=True)
+        raise typer.Exit(2)
     ids = evaluators or list(cfg.evaluators)
     unknown = [e for e in ids if e not in cfg.evaluators]
     if unknown:
@@ -269,7 +285,8 @@ def evaluate(
         raise typer.Exit(2)
     judges = judge_models(cfg, ids)
     client = _real_client(cfg, judges) if judges else None
-    with RunManifest("evaluate", cfg, args={"evaluators": ids, "target": target}) as m:
+    with RunManifest("evaluate", cfg, args={"evaluators": ids, "target": target,
+                                            "sources": sources}) as m:
         if target == "responses":
             responses = read_records(responses_path(cfg), Response)
             items, skipped = eligible_responses(responses)
@@ -279,6 +296,13 @@ def evaluate(
             for err in missing.values():
                 typer.secho(f"skipping: {err}", fg=typer.colors.YELLOW, err=True)
             write_records(processed_dir(cfg) / "reference_items.parquet", refs)
+            if sources:
+                unknown_src = set(sources) - {r.source for r in refs}
+                if unknown_src:
+                    typer.secho(f"no reference items for sources: {sorted(unknown_src)}",
+                                fg=typer.colors.RED, err=True)
+                    raise typer.Exit(2)
+                refs = [r for r in refs if r.source in sources]
             items = [item_from_reference(r) for r in refs]
         evs = [make_evaluator(cfg, e, client) for e in ids]
         m.extra["evaluator_versions"] = {ev.id: ev.version() for ev in evs}
@@ -362,6 +386,9 @@ def annotate_run_app(
 @annotate_app.command("import")
 def annotate_import(
     name: Annotated[str, typer.Option(help="Sample name.")] = "main",
+    single_pass: Annotated[bool, typer.Option(
+        "--single-pass", help="Use pass-1 labels as final, with no pass 2 (pilot only).")
+    ] = False,
 ) -> None:
     """Import annotation passes, report test-retest agreement, list disagreements."""
     from srs.manifest import RunManifest
@@ -369,9 +396,18 @@ def annotate_import(
 
     cfg = get_cfg()
     d = sampling.annotation_dir(cfg, name)
-    with RunManifest("annotate import", cfg, args={"name": name}) as m:
-        rep = annotations.import_annotations(d)
+    with RunManifest("annotate import", cfg,
+                     args={"name": name, "single_pass": single_pass}) as m:
+        try:
+            rep = annotations.import_annotations(d, single_pass=single_pass)
+        except ValueError as e:
+            typer.secho(str(e), fg=typer.colors.RED, err=True)
+            raise typer.Exit(2) from e
         m.counts = {k: rep[k] for k in ("n_pass1", "n_pass2", "n_final", "n_disagreements")}
+    if single_pass:
+        typer.echo(f"{rep['n_final']} single-pass final labels, "
+                   f"{len(rep['pending_adjudication'])} items not yet labeled; see {d}")
+        return
     typer.echo(f"refusal kappa={rep['refusal_kappa']} harmful kappa={rep['harmful_kappa']}; "
                f"{rep['n_disagreements']} disagreements, "
                f"{len(rep['pending_adjudication'])} awaiting adjudication; see {d}/reliability.md")
@@ -380,18 +416,34 @@ def annotate_import(
 # --- analyze ---------------------------------------------------------------------------------
 
 
-def _analyze(rqs: list[str], annotation: str) -> None:
+def _analyze(rqs: list[str], annotation: str, splits: list[str] | None = None,
+             external: bool = True, borderline: bool | None = None) -> None:
     import importlib
+    from dataclasses import replace
+
+    import pandas as pd
 
     from srs.analysis.data import load_analysis_data
     from srs.manifest import RunManifest, new_run_id
 
     cfg = get_cfg()
+    if splits:
+        cfg.experiment.analysis.primary_splits = splits  # type: ignore[assignment]
+    if borderline is not None:
+        cfg.experiment.analysis.include_borderline = borderline
     run_id = new_run_id("analyze")
     out = cfg.path("results_dir") / "analysis" / run_id
-    with RunManifest("analyze", cfg, args={"rqs": rqs, "annotation": annotation},
+    with RunManifest("analyze", cfg, args={"rqs": rqs, "annotation": annotation,
+                                           "splits": cfg.experiment.analysis.primary_splits,
+                                           "external": external,
+                                           "include_borderline":
+                                               cfg.experiment.analysis.include_borderline},
                      out_dir=out, run_id=run_id) as m:
         data = load_analysis_data(cfg, annotation)
+        if not external:
+            data = replace(data, judg_ext=pd.DataFrame(), refs=pd.DataFrame(),
+                           inputs=[i for i in data.inputs if "external" not in i
+                                   and "reference_items" not in i])
         if data.resp.empty:
             typer.secho("no responses to analyze (run generate and evaluate first)",
                         fg=typer.colors.RED, err=True)
@@ -408,16 +460,27 @@ def _analyze(rqs: list[str], annotation: str) -> None:
     typer.echo(f"wrote {len(files)} files to {out}")
 
 
+_SPLITS_HELP = "Splits for the primary analyses (default: analysis.primary_splits, main+rq3)."
+_EXTERNAL_HELP = "Use the external reference sets in RQ5 (--no-external: study responses only)."
+_BORDERLINE_HELP = ("Include borderline-tier prompts in every metric (default: "
+                    "analysis.include_borderline, i.e. clear-tier only).")
+
+
 def _make_rq_command(rq: str) -> None:
     def command(annotation: Annotated[str, typer.Option(
-            help="Self-annotation sample name used as the RQ5 reference.")] = "main") -> None:
-        _analyze([rq], annotation)
+            help="Self-annotation sample name used as the RQ5 reference.")] = "main",
+                splits: Annotated[list[str] | None, typer.Option(help=_SPLITS_HELP)] = None,
+                external: Annotated[bool, typer.Option(help=_EXTERNAL_HELP)] = True,
+                borderline: Annotated[bool | None, typer.Option(
+                    "--borderline/--clear-only", help=_BORDERLINE_HELP)] = None,
+                ) -> None:
+        _analyze([rq], annotation, splits, external, borderline)
 
     command.__doc__ = f"Run the {rq.upper()} analysis."
     analyze_app.command(rq)(command)
 
 
-for _rq in ("rq1", "rq2", "rq3", "rq4", "rq5"):
+for _rq in ("rq1", "rq2", "rq3", "rq4", "rq5", "stability"):
     _make_rq_command(_rq)
 
 
@@ -425,9 +488,14 @@ for _rq in ("rq1", "rq2", "rq3", "rq4", "rq5"):
 def analyze_all(
     annotation: Annotated[str, typer.Option(
         help="Self-annotation sample name used as the RQ5 reference.")] = "main",
+    splits: Annotated[list[str] | None, typer.Option(help=_SPLITS_HELP)] = None,
+    external: Annotated[bool, typer.Option(help=_EXTERNAL_HELP)] = True,
+    borderline: Annotated[bool | None, typer.Option(
+        "--borderline/--clear-only", help=_BORDERLINE_HELP)] = None,
 ) -> None:
-    """Run every RQ analysis."""
-    _analyze(["rq1", "rq2", "rq3", "rq4", "rq5"], annotation)
+    """Run every RQ analysis and the stability check."""
+    _analyze(["rq1", "rq2", "rq3", "rq4", "rq5", "stability"], annotation, splits, external,
+             borderline)
 
 
 # --- llm -------------------------------------------------------------------------------------

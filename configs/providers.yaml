@@ -1,4 +1,5 @@
-# One OpenAI-compatible endpoint per provider. API keys are read from the named env var.
+# One endpoint per provider. API keys are read from the named env var. `api` is the wire
+# protocol: openai (Chat Completions, the default) or anthropic (native Messages API).
 # Content-filter codes/patterns below are starting points; confirm or replace them with the
 # codes observed in the pilot (task 9.2). Anything not listed is treated as `fatal`.
 providers:
@@ -6,7 +7,7 @@ providers:
     base_url: https://generativelanguage.googleapis.com/v1beta/openai/   # Gemini OpenAI-compatible endpoint
     api_key_env: GEMINI_API_KEY
     max_concurrency: 8
-    requests_per_minute: 150         # set to your Gemini tier's limit for the chosen models
+    requests_per_minute: 150         # paid tier (billing on 2026-10-15); the free tier allows only 15
     blocked_error_codes: []          # pilot: confirm how prompt-level safety blocks are reported
     blocked_finish_reasons: [content_filter]   # pilot: confirm Gemini's SAFETY mapping
 
@@ -18,19 +19,28 @@ providers:
     blocked_message_patterns: ["Content Exists Risk"]   # pilot: confirm
     blocked_finish_reasons: [content_filter]
 
-  moonshot:
-    base_url: https://api.moonshot.cn/v1   # this account's key is for the China platform (.ai returns 401)
-    api_key_env: MOONSHOT_API_KEY
-    max_concurrency: 4
-    requests_per_minute: 60
-    blocked_error_codes: [content_filter]   # pilot: confirm
-    blocked_message_patterns: ["considered high risk"]
+  alibaba:
+    base_url: https://ws-ki3odi4v72h0bua3.cn-beijing.maas.aliyuncs.com/compatible-mode/v1   # this account's Bailian workspace endpoint (Beijing)
+    api_key_env: DASHSCOPE_API_KEY
+    max_concurrency: 8
+    requests_per_minute: 300
+    blocked_error_codes: [data_inspection_failed]   # confirmed in the main run (2026-10-18); none in the pilot
+    blocked_message_patterns: ["inappropriate content"]
     blocked_finish_reasons: [content_filter]
 
   zhipu:
-    base_url: https://open.bigmodel.cn/api/paas/v4   # or https://api.z.ai/api/paas/v4 (international)
+    base_url: https://open.bigmodel.cn/api/paas/v4/   # or https://api.z.ai/api/paas/v4 (international)
     api_key_env: ZHIPU_API_KEY
     max_concurrency: 4
     requests_per_minute: 60
-    blocked_error_codes: ["1301"]   # pilot: confirm. 1113 = insufficient balance (HTTP 429), not a block
+    blocked_error_codes: ["1301"]   # confirmed in the GLM pilot (2026-10-18). 1113 = insufficient balance (HTTP 429), not a block
     blocked_finish_reasons: [content_filter, sensitive]
+
+  anthropic:
+    api: anthropic                   # native Messages API through the anthropic SDK
+    base_url: https://api.anthropic.com
+    api_key_env: ANTHROPIC_API_KEY
+    max_concurrency: 8
+    requests_per_minute: 50          # set to your Anthropic tier's limit for Claude Haiku 5.5
+    retry_status_codes: [408, 409, 429, 500, 502, 503, 504, 529]   # 529 = overloaded_error
+    blocked_finish_reasons: [refusal]   # safety-classifier decline: HTTP 200, stop_reason "refusal"

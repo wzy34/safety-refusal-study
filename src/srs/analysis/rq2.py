@@ -19,7 +19,7 @@ FORMULA = "y ~ (C(model_id) + C(expected_behavior) + C(category)) ** 2"
 
 def category_metrics(data: AnalysisData, cfg: StudyConfig, evaluator: str) -> pd.DataFrame:
     a = cfg.experiment.analysis
-    dec = decisions(primary_rows(data.resp), data.judg, evaluator, a.primary_rule)
+    dec = decisions(primary_rows(data.resp, a.primary_splits), data.judg, evaluator, a.primary_rule)
     return compute_metrics(dec, ("model_id", "category"), a.include_borderline, a.ci_level,
                            a.bootstrap_resamples, cfg.experiment.seed)
 
@@ -45,7 +45,8 @@ def run(data: AnalysisData, cfg: StudyConfig, out: Path) -> list[Path]:
     pd.DataFrame(w_rows).to_csv(p := out / "rq2_kendalls_w.csv", index=False)
     written.append(p)
 
-    dec = decisions(primary_rows(data.resp), data.judg, a.primary_evaluator, a.primary_rule)
+    dec = decisions(primary_rows(data.resp, a.primary_splits), data.judg, a.primary_evaluator,
+                    a.primary_rule)
     d = dec[dec["valid"] & ((dec["tier"] == "clear") | a.include_borderline)].copy()
     d["y"] = d["refused"].astype(int)
     try:

@@ -66,3 +66,22 @@ def test_empty_first_turn_rejected():
 def test_unknown_field_rejected():
     with pytest.raises(ValidationError):
         Judgment(item_id="r", evaluator_id="k", evaluator_version="v", status="ok", model="gemini")
+
+
+def _upsert_judgments(path, worker, n):
+    for i in range(n):
+        upsert_records(path, Judgment,
+                       [Judgment(item_id=f"r{i}", evaluator_id=f"ev{worker}",
+                                 evaluator_version="v1", refusal="full_refusal", status="ok")],
+                       key=lambda j: (j.item_id, j.evaluator_id))
+
+
+def test_concurrent_upserts_lose_nothing(tmp_path):
+    """Each upsert opens its own lock file handle, so flock serializes them across threads
+    just as it does across processes."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    path = tmp_path / "j.parquet"
+    with ThreadPoolExecutor(4) as pool:
+        list(pool.map(lambda w: _upsert_judgments(path, w, 15), range(4)))
+    assert len(read_records(path, Judgment)) == 60

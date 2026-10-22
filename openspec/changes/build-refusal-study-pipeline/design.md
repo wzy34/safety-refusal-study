@@ -3,7 +3,7 @@
 This is a greenfield project. The repository holds only `research_ideas.md` and the OpenSpec scaffolding, and is not yet a git repository. See proposal.md for motivation, and the specs for the requirements.
 
 Constraints that shape the approach:
-- **APIs:** Gemini (Google), GLM (Zhipu), Kimi (Moonshot) and DeepSeek only. All four accept OpenAI-style Chat Completions requests (Gemini through its OpenAI-compatible endpoint). Gemini replaced GPT on 2026-10-11.
+- **APIs:** Gemini (Google), GLM (Zhipu), Qwen (Alibaba Cloud Bailian) and DeepSeek only. All four accept OpenAI-style Chat Completions requests (Gemini through its OpenAI-compatible endpoint). Gemini replaced GPT on 2026-10-11, and Qwen replaced Kimi on 2026-10-17 for cost. On 2026-10-15 Anthropic was added for one role, Judge A (Claude Haiku 5.5), reached through its native Messages API.
 - **Hardware:** Apple M4 Pro with 24 GB RAM. No CUDA GPU.
 - **People:** no external annotators. The researcher labels a sample themselves.
 - **Language:** English only.
@@ -35,9 +35,15 @@ Constraints that shape the approach:
 - LiteLLM adds its own parameter-mapping layer, which isn't needed when every provider already accepts OpenAI-style requests.
 - Native SDKs would mean four separate code paths.
 
+Exception (2026-10-15): the Claude judge uses the official `anthropic` SDK, because Anthropic has no supported OpenAI-compatible path for structured output. Providers declare `api: openai | anthropic` in providers.yaml; `ProviderTransport` routes on it, and `AnthropicTransport` translates requests and replies to and from the Chat Completions shape, so adapters, cache, retries and block detection are unchanged. A safety-classifier decline (`stop_reason: refusal`) is listed under the provider's `blocked_finish_reasons` and recorded as a blocked judgment.
+
 Gemini is reached through its OpenAI-compatible endpoint (`generativelanguage.googleapis.com/v1beta/openai/`), not the `google-genai` SDK, so all providers share one path. Gemini-specific fields (`reasoning_effort`, `extra_body.google`) go in the model's `extra_body`.
 
 Gemini caveats to settle in the pilot: thinking can be fully disabled only on 2.5 Flash-series models (`reasoning_effort: none`), so the non-reasoning variant must be one of them or use `minimal` with that limitation reported; prompt-level safety blocks and seed support on the compat endpoint are undocumented and must be observed; the API's default safety settings are kept, so blocks count as `api_blocked`, not as model refusals.
+
+GLM caveat (2026-10-17, updated 2026-10-18): the pair uses GLM-5.3, paid from a prepaid GLM-5.3 token pack (first GLM-5.3-Flash for cost; GLM-5.2, the only GLM with a thinking-off mode, was about 6× dearer). Thinking cannot be disabled on GLM-5.3, so glm-a sends `reasoning_effort: low` and glm-b `max`; report glm-a as minimised thinking, not off, as for gemini-a. The GLM pilot confirms that `low` is accepted and measures how often glm-a hits the 1024-token limit.
+
+Qwen caveat (2026-10-17): Qwen3.8-Flash replaced Kimi K2.6 for cost (about 10× cheaper output; Kimi K2.6 was already Moonshot's cheapest model). Thinking is switched fully off and on with `enable_thinking`, so the qwen pair is a true off/on contrast. Kimi's pilot responses stay on disk but are excluded from the analysis, which covers only the models in `evaluated`. The Qwen pilot confirms that non-streaming calls accept `enable_thinking: true` and records the content-inspection error code.
 
 ### D2. Per-model capability adapters declared in config
 `models.yaml` declares, for each model:
@@ -51,8 +57,8 @@ Gemini caveats to settle in the pilot: thinking can be fully disabled only on 2.
 
 ### D3. Provider error classification as a per-provider hook
 `errors.py` maps a provider name and an exception or finish reason to `retry`, `blocked` or `fatal`.
-- Initial rules: HTTP 429, 5xx and timeouts → `retry`. `finish_reason == "content_filter"` → `blocked`. Known sensitive-content error codes for each provider → `blocked`. Anything else → `fatal`.
-- Exact codes for GLM, Kimi and DeepSeek are confirmed during the pilot (task 6.x) and added as data in `providers.yaml`, not hard-coded.
+- Initial rules: HTTP 429, 5xx and timeouts → `retry`. `finish_reason` of `content_filter` → `blocked`, matched on the part before any `:` detail (2026-10-20: Gemini's `content_filter: PROHIBITED_CONTENT` / `RECITATION` were missed by an exact match; 36 main-run responses were migrated by `scripts/migrate_response_status.py`). Known sensitive-content error codes for each provider → `blocked`. Anything else → `fatal`.
+- Exact codes for GLM, Qwen and DeepSeek are confirmed during the pilot (task 6.x) and added as data in `providers.yaml`, not hard-coded.
 - Retries use tenacity with exponential backoff and jitter. Concurrency is capped by an `asyncio.Semaphore`, and request rate by a simple token bucket, both per provider.
 
 ### D4. SQLite request cache plus Parquet tables
@@ -105,7 +111,7 @@ The evaluate stage skips `(response_id, evaluator_id, version)` triples that are
   - The MLX 8-bit version differs from the published fp16 weights, so its accuracy on WildGuardTest is reported as a fidelity check (see risks).
 - **LLM judges:** one rubric (`prompts/judge_rubric.md`) with definitions and worked examples of full compliance, partial and full refusal, plus a harmfulness definition.
   - The judge outputs JSON in this order: `{rationale, refusal, harmful}`. Rationale first, so the model reasons before it labels.
-  - Judge A (Gemini) uses `json_schema` output. Judge B (DeepSeek) uses `json_object` output plus pydantic validation and up to 2 retries.
+  - Judge A (Claude Haiku 5.5, thinking off, default temperature because the model rejects other values) uses `json_schema` structured output. Judge B (DeepSeek) uses `json_object` output plus pydantic validation and up to 2 retries.
   - A judge refusal is detected when no JSON comes back and the text matches refusal patterns → `judge_refused`.
 
 ### D7. Framing generation
@@ -139,8 +145,9 @@ Judge prompts are then frozen (version hash recorded). Any change after that req
 
 ## Risks / Trade-offs
 
-- **Every LLM judge belongs to an evaluated model family (self-preference).** → Report agreement on own-family vs. other-family responses (study-analysis spec). WildGuard, run locally from outside these families, serves as the independent evaluator.
-- **DeepSeek (Judge B) may block or refuse judging harmful content at high rates.** → Measure in the pilot. If the block-plus-refusal rate exceeds 5%, switch Judge B to GLM or Kimi through config.
+- **Judge B belongs to an evaluated model family (self-preference).** → Report agreement on own-family vs. other-family responses (study-analysis spec). Judge A (Claude, since 2026-10-15) and WildGuard come from outside the evaluated families.
+- **Claude Haiku 5.5 (Judge A) may decline to judge harmful content through its safety classifiers, with no server-side fallback.** → Measure in the pilot with the same 5% block-plus-refusal check as Judge B. Judge A also runs at the default temperature while Judge B runs at 0; report this in the methods.
+- **DeepSeek (Judge B) may block or refuse judging harmful content at high rates.** → Measure in the pilot. If the block-plus-refusal rate exceeds 5%, switch Judge B to GLM or Qwen through config.
 - **Provider content filters can make a model look safer than it is.** → `api_blocked` is a separate outcome, excluded from FAR/ORR denominators and reported alongside them.
 - **Single annotator who is also the researcher.** → Blinding, two passes at least 7 days apart, test-retest κ, and external human-labeled datasets as the main accuracy reference. Stated as a limitation.
 - **MLX 8-bit WildGuard may differ from the published model.** → Report its F1 on WildGuardTest next to the published figure. If the gap is more than 2 points, fall back to fp16 on MPS (`transformers`); the cost is runtime, not code structure.
@@ -164,6 +171,6 @@ Nothing to migrate (greenfield). Bring-up order:
 ## Open Questions
 
 - Exact model IDs: two per provider, ideally a reasoning/non-reasoning pair. Configuration only.
-- API endpoint region for Zhipu and Moonshot (`.cn` vs. international). Configuration only.
+- API endpoint region for Zhipu (`.cn` vs. international) and Bailian (Beijing vs. Singapore). Configuration only.
 - Exact content-filter error codes for each provider. Discovered in the pilot and recorded as data.
 - Final unified category list (about 8–10). Edited in `taxonomy.yaml` after reviewing source categories in task 2.x. No code impact.

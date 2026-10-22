@@ -62,64 +62,65 @@ models:
     price_in_per_mtok: 0.30
     price_out_per_mtok: 1.20
 
-  # K2.6 fixes temperature (0.6 non-thinking, 1.0 thinking) and top_p (0.95) and returns an
-  # error if any other value is sent. Prices converted from CNY 6.5 / 27 at ~7.1 CNY/USD.
-  kimi-a:
-    provider: moonshot
-    model: kimi-k2.6
-    family: kimi
+  # Qwen3.8-Flash replaced Kimi K2.6 on 2026-10-17 for cost (~10x cheaper output). Thinking is a
+  # true on/off switch (enable_thinking), and thinking tokens are billed as output. Confirm in
+  # the Qwen pilot that non-streaming calls accept enable_thinking: true and which error code
+  # content-inspection blocks use. Prices converted from CNY 0.8 / 2.7 (Bailian, Beijing region,
+  # after the 2026-08-27 price cut) at ~7.1 CNY/USD.
+  qwen-a:
+    provider: alibaba
+    model: qwen3.8-flash
+    family: qwen
     token_param: max_tokens
-    supports_temperature: false
+    supports_temperature: true
     supports_seed: false
     structured_output: json_object
     is_reasoning: false
-    extra_body: {thinking: {type: disabled}}
-    price_in_per_mtok: 0.92
-    price_out_per_mtok: 3.80
-  kimi-b:
-    provider: moonshot
-    model: kimi-k2.6
-    family: kimi
+    extra_body: {enable_thinking: false}
+    price_in_per_mtok: 0.11
+    price_out_per_mtok: 0.38
+  qwen-b:
+    provider: alibaba
+    model: qwen3.8-flash
+    family: qwen
     token_param: max_tokens
-    supports_temperature: false
+    supports_temperature: true
     supports_seed: false
     structured_output: json_object
     is_reasoning: true
-    extra_body: {thinking: {type: enabled}}
-    price_in_per_mtok: 0.92
-    price_out_per_mtok: 3.80
+    extra_body: {enable_thinking: true}
+    price_in_per_mtok: 0.11
+    price_out_per_mtok: 0.38
 
-  # GLM-5.3, GLM-5.3-Flash and GLM-5.3-FlashX always think, so the pair uses GLM-5.2.
-  # The thinking-off mode is unverified until the Zhipu account is topped up (srs llm ping).
-  # Prices are from third-party trackers; confirm on the Zhipu pricing page.
+  # GLM-5.3 since 2026-10-18 (was GLM-5.3-Flash), billed from a 20M-token GLM-5.3 resource pack.
+  # It cannot disable thinking, so glm-a uses reasoning_effort "low" and glm-b "max" (like
+  # gemini-a, report glm-a as minimised, not off). The GLM pilot confirms that "low" is accepted
+  # and how often glm-a hits the 1024-token limit, since thinking counts toward it.
+  # No per-token price: the pack prepays it, so dry runs show no cost for GLM.
   glm-a:
     provider: zhipu
-    model: glm-5.2
+    model: glm-5.3
     family: glm
     token_param: max_tokens
     supports_temperature: true
     supports_seed: false
     structured_output: json_object
     is_reasoning: false
-    extra_body: {thinking: {type: disabled}}
-    price_in_per_mtok: 1.40
-    price_out_per_mtok: 4.40
+    extra_body: {reasoning_effort: low}
   glm-b:
     provider: zhipu
-    model: glm-5.2
+    model: glm-5.3
     family: glm
     token_param: max_tokens
     supports_temperature: true
     supports_seed: false
     structured_output: json_object
     is_reasoning: true
-    extra_body: {thinking: {type: enabled}}
-    price_in_per_mtok: 1.40
-    price_out_per_mtok: 4.40
+    extra_body: {reasoning_effort: max}
 
   # Utility roles: judges, framing rewriter / intent checker, category and tier screens.
-  # Both judges are the cheap tier with thinking minimised/off, so temperature 0 applies and
-  # the rationale-first JSON does the reasoning.
+  # The judges are cheap tiers with thinking minimised/off, so the rationale-first JSON does
+  # the reasoning. judge-gemini stays the category/tier labeler and the framing rewriter.
   judge-gemini:
     provider: google
     model: gemini-3.1-flash-lite
@@ -131,6 +132,22 @@ models:
     extra_body: {reasoning_effort: minimal}
     price_in_per_mtok: 0.25
     price_out_per_mtok: 1.50
+  # Judge A since 2026-10-15: a family outside the evaluated ones, so Judge A has no
+  # self-preference. Haiku 5.5 rejects non-default sampling parameters, so it runs at the
+  # default temperature (Judge B runs at 0). Thinking off is accepted at effort high or below.
+  # Its safety classifiers can decline a request (stop_reason "refusal", no server-side
+  # fallback); those become blocked judgments and count toward the pilot's 5% check.
+  judge-claude:
+    provider: anthropic
+    model: claude-haiku-5-5
+    family: claude
+    token_param: max_tokens
+    supports_temperature: false
+    supports_seed: false
+    structured_output: json_schema
+    extra_body: {thinking: {type: disabled}}
+    price_in_per_mtok: 0.10
+    price_out_per_mtok: 0.50
   judge-deepseek:
     provider: deepseek
     model: deepseek-flash
@@ -143,4 +160,4 @@ models:
     price_in_per_mtok: 0.30
     price_out_per_mtok: 1.20
 
-evaluated: [gemini-a, gemini-b, deepseek-a, deepseek-b, kimi-a, kimi-b, glm-a, glm-b]
+evaluated: [gemini-a, gemini-b, deepseek-a, deepseek-b, qwen-a, qwen-b, glm-a, glm-b]

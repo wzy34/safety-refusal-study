@@ -40,6 +40,9 @@ class LLMJudgeEvaluator:
         self.cfg = cfg
         self.client = client
         self.rubric = load_template(cfg.path("prompts_dir"), ecfg.rubric)
+        # One loop for every evaluate() call: the client's limiters and HTTP connections bind
+        # to the loop that first uses them, and run_evaluators calls evaluate() per chunk.
+        self._loop: asyncio.AbstractEventLoop | None = None
 
     def version(self) -> str:
         m = self.cfg.models[self.ecfg.model]
@@ -71,4 +74,6 @@ class LLMJudgeEvaluator:
         async def run():
             return await asyncio.gather(*(self._judge(it, version) for it in items))
 
-        return [j for j in asyncio.run(run()) if j is not None]
+        if self._loop is None or self._loop.is_closed():
+            self._loop = asyncio.new_event_loop()
+        return [j for j in self._loop.run_until_complete(run()) if j is not None]

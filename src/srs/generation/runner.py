@@ -4,14 +4,17 @@
 - The stability subset adds samples 1..n at a non-zero temperature for a fixed set of intents.
 - Multi-turn prompts are run live: each scripted user turn is sent after the model's own reply
   to the previous one. A provider block stops the conversation and records the turn.
-- Responses already `ok` or `api_blocked` are skipped; `error` responses are retried.
+- A reply with no visible answer (e.g. the thinking budget ran out first) is `no_answer`:
+  kept on disk but neither judged nor counted in refusal rates.
+- Responses already `ok`, `api_blocked` or `no_answer` are skipped; `error` responses are
+  retried.
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections import defaultdict
+from collections import defaultdict, deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,8 +29,8 @@ from srs.schemas import Message, Prompt, Response
 
 log = logging.getLogger(__name__)
 
-FINAL_STATUSES = ("ok", "api_blocked")
-CHUNK = 200  # responses are checkpointed to disk after every chunk
+FINAL_STATUSES = ("ok", "api_blocked", "no_answer")
+CHUNK = 200  # responses are checkpointed to disk after every CHUNK completions
 
 
 def responses_path(cfg: StudyConfig) -> Path:
@@ -53,14 +56,17 @@ class Job:
                          seed=self.gen_params["seed"])
 
 
-def primary_params(cfg: StudyConfig) -> dict[str, Any]:
+def primary_params(cfg: StudyConfig, model_id: str | None = None) -> dict[str, Any]:
     g = cfg.experiment.generation
-    return {"temperature": g.temperature, "max_tokens": g.max_tokens, "seed": g.seed,
+    max_tokens = g.max_tokens
+    if model_id is not None and cfg.models[model_id].is_reasoning and g.reasoning_max_tokens:
+        max_tokens = g.reasoning_max_tokens
+    return {"temperature": g.temperature, "max_tokens": max_tokens, "seed": g.seed,
             "system_prompt": g.system_prompt}
 
 
-def stability_params(cfg: StudyConfig) -> dict[str, Any]:
-    return {**primary_params(cfg), "temperature": cfg.experiment.stability.temperature}
+def stability_params(cfg: StudyConfig, model_id: str | None = None) -> dict[str, Any]:
+    return {**primary_params(cfg, model_id), "temperature": cfg.experiment.stability.temperature}
 
 
 def select_split(prompts: list[Prompt], split: str) -> list[Prompt]:
@@ -79,11 +85,10 @@ def plan_jobs(cfg: StudyConfig, prompts: list[Prompt], model_ids: list[str], *,
               stability: bool = False, limit: int | None = None) -> list[Job]:
     prompts = prompts[:limit] if limit is not None else prompts
     if not stability:
-        params = primary_params(cfg)
-        return [Job(p, m, 0, params) for m in model_ids for p in prompts]
-    params = stability_params(cfg)
+        return [Job(p, m, 0, primary_params(cfg, m)) for m in model_ids for p in prompts]
     n = cfg.experiment.stability.n_samples
-    return [Job(p, m, k, params) for m in model_ids for p in prompts for k in range(1, n + 1)]
+    return [Job(p, m, k, stability_params(cfg, m)) for m in model_ids for p in prompts
+            for k in range(1, n + 1)]
 
 
 def _system(job: Job) -> list[dict[str, str]]:
@@ -118,6 +123,8 @@ async def run_job(client: ChatClient, job: Job, run_id: str) -> Response:
                                   reasoning=comp.reasoning))
     assert comp is not None
     ok = status == "ok"
+    if ok and not (comp.text or "").strip():
+        status = "no_answer"
     return Response(
         response_id=job.response_id,
         prompt_id=job.prompt.prompt_id,
@@ -146,18 +153,45 @@ def pending_jobs(jobs: list[Job], existing: list[Response]) -> list[Job]:
 
 async def run_generation(cfg: StudyConfig, client: ChatClient, jobs: list[Job], run_id: str,
                          out_path: Path | None = None) -> dict[str, int]:
-    """Run pending jobs, checkpointing to `out_path`. Returns status counts for this run."""
+    """Run pending jobs, checkpointing to `out_path`. Returns status counts for this run.
+
+    Each provider drains its own queue with `max_concurrency` workers, so providers run in
+    parallel and a slow call holds up only its own worker, not a whole chunk.
+    """
     out_path = out_path or responses_path(cfg)
     todo = pending_jobs(jobs, read_records(out_path, Response))
     counts: dict[str, int] = defaultdict(int)
     counts["skipped_done"] = len(jobs) - len(todo)
-    for start in range(0, len(todo), CHUNK):
-        chunk = todo[start:start + CHUNK]
-        results = await asyncio.gather(*(run_job(client, j, run_id) for j in chunk))
-        upsert_records(out_path, Response, results, key=lambda r: r.response_id)
-        for r in results:
+    queues: dict[str, deque[Job]] = defaultdict(deque)
+    for j in todo:  # job order (model order) is kept within each provider
+        queues[cfg.models[j.model_id].provider].append(j)
+    buffer: list[Response] = []
+    written = 0
+
+    def flush() -> None:
+        nonlocal written
+        if buffer:
+            upsert_records(out_path, Response, buffer, key=lambda r: r.response_id)
+            written += len(buffer)
+            buffer.clear()
+            left = {p: len(q) for p, q in queues.items() if q}
+            log.info("generation %d/%d done (%s) queued=%s", written, len(todo), dict(counts),
+                     left)
+
+    async def worker(queue: deque[Job]) -> None:
+        while queue:
+            r = await run_job(client, queue.popleft(), run_id)
             counts[r.status] += 1
-        log.info("generation %d/%d done (%s)", start + len(chunk), len(todo), dict(counts))
+            buffer.append(r)
+            if len(buffer) >= CHUNK:
+                flush()
+
+    workers = [worker(q) for p, q in queues.items()
+               for _ in range(min(cfg.providers[p].max_concurrency, len(q)))]
+    try:
+        await asyncio.gather(*workers)
+    finally:
+        flush()
     return dict(counts)
 
 

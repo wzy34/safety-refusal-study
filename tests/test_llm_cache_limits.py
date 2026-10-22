@@ -100,7 +100,8 @@ def test_classify_error(err, expected):
 
 @pytest.mark.parametrize("finish,blocked", [
     ("content_filter", True), ("sensitive", True), ("stop", False), ("length", False),
-    (None, False),
+    (None, False), ("content_filter: PROHIBITED_CONTENT", True),
+    ("content_filter: RECITATION", True), ("length: max_tokens", False),
 ])
 def test_blocked_finish_reason(finish, blocked):
     assert is_blocked_finish(PC, finish) == blocked

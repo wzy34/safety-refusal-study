@@ -3,6 +3,10 @@ seed: 20261010
 generation:
   temperature: 0.0
   max_tokens: 1024
+  # Thinking variants (is_reasoning: true). Thinking counts toward the limit, and at 1024 the
+  # pilot cut off 86% of gemini-b and 74% of deepseek-b answers (most deepseek-b ones empty).
+  # Chosen 2026-10-15; report the different limit in the methods.
+  reasoning_max_tokens: 4096
   system_prompt: null
 
 stability:

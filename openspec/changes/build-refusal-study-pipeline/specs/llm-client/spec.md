@@ -1,6 +1,6 @@
 ## Purpose
 
-Provides one reliable way to send chat requests to the Gemini, DeepSeek, Kimi and GLM APIs. It reports provider blocks, errors and model output faithfully, and never pays twice for an identical request.
+Provides one reliable way to send chat requests to the Gemini, DeepSeek, Qwen and GLM APIs. It reports provider blocks, errors and model output faithfully, and never pays twice for an identical request.
 
 ## ADDED Requirements
 
@@ -62,6 +62,10 @@ It SHALL retry retryable errors with exponential backoff, up to a configured lim
 - **WHEN** a provider rejects a request, or truncates a response, because of its content filter
 - **THEN** the record has status `api_blocked` with the provider's error code or finish reason
 - **AND** the request is not retried
+
+#### Scenario: Finish reason with a detail suffix
+- **WHEN** a provider reports a finish reason such as `content_filter: PROHIBITED_CONTENT` (Gemini)
+- **THEN** it is matched against the provider's blocked finish reasons by the part before the `:`, and the full string is kept as the block code
 
 #### Scenario: Retries exhausted
 - **WHEN** a retryable error persists beyond the retry limit

@@ -1,7 +1,7 @@
 # Sensitive or large study artifacts (benchmark data, model outputs, weights)
-data/
-results/
-models/
+/data/
+/results/
+/models/
 
 # Secrets
 .env
@@ -22,3 +22,6 @@ __pycache__/
 build/
 dist/
 .DS_Store
+
+.github/
+.claude/

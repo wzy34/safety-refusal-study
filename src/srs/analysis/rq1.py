@@ -21,7 +21,7 @@ OTHER_RULE = {"partial_as_refusal": "partial_as_compliance",
 def model_metrics(data: AnalysisData, cfg: StudyConfig, evaluator: str, rule: str,
                   include_borderline: bool | None = None) -> pd.DataFrame:
     a = cfg.experiment.analysis
-    dec = decisions(primary_rows(data.resp), data.judg, evaluator, rule)  # type: ignore[arg-type]
+    dec = decisions(primary_rows(data.resp, a.primary_splits), data.judg, evaluator, rule)  # type: ignore[arg-type]
     return compute_metrics(dec, ("model_id",),
                            a.include_borderline if include_borderline is None
                            else include_borderline,
@@ -62,7 +62,7 @@ def run(data: AnalysisData, cfg: StudyConfig, out: Path) -> list[Path]:
             path = out / f"rq1_metrics_{tag}.csv"
             m.to_csv(path, index=False)
             written.append(path)
-    dec = decisions(primary_rows(data.resp), data.judg, primary, rule)
+    dec = decisions(primary_rows(data.resp, a.primary_splits), data.judg, primary, rule)
     pw = pairwise_tests(dec, a.include_borderline)
     pw.to_csv(p := out / "rq1_pairwise.csv", index=False)
     written.append(p)

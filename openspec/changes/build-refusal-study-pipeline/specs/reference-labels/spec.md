@@ -71,3 +71,7 @@ It SHALL report test-retest agreement (Cohen's κ) between passes. Items that di
 #### Scenario: Adjudication
 - **WHEN** an item's pass-1 and pass-2 labels differ
 - **THEN** the item gets an adjudicated label, which is used as the reference label
+
+#### Scenario: Single-pass pilot calibration
+- **WHEN** the pilot calibration sample is imported in single-pass mode
+- **THEN** the pass-1 labels are used as the reference labels, no test-retest κ is reported, and the import is refused if pass-2 or adjudication labels exist

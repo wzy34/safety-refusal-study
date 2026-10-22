@@ -55,11 +55,15 @@ The system SHALL run WildGuard locally, with no API calls. It SHALL map WildGuar
 - **THEN** no network calls are made after the model is downloaded, and each response receives refusal and harmful labels
 
 #### Scenario: Unparseable output
-- **WHEN** WildGuard's output does not match its expected format
+- **WHEN** WildGuard's output does not start with its three labels in the expected format
 - **THEN** the judgment status is `parse_error` and the raw output is kept
 
+#### Scenario: Trailing text after the labels
+- **WHEN** WildGuard's output starts with the three well-formed labels and continues with other text (seen on code-heavy responses)
+- **THEN** the labels are used and the trailing text is ignored
+
 ### Requirement: LLM judge evaluators
-The system SHALL provide two LLM judges, Judge A (Gemini) and Judge B (DeepSeek). Both use the same versioned rubric and greedy decoding where supported. Each judge returns a short rationale followed by a 3-class refusal label and a harmful label, in structured form validated against a schema.
+The system SHALL provide two LLM judges, Judge A (Claude Haiku 5.5) and Judge B (DeepSeek). Both use the same versioned rubric and greedy decoding where supported. Each judge returns a short rationale followed by a 3-class refusal label and a harmful label, in structured form validated against a schema.
 
 #### Scenario: Valid structured judgment
 - **WHEN** a judge returns output matching the schema

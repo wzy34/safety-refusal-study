@@ -36,7 +36,16 @@ def load_analysis_data(cfg: StudyConfig, annotation: str = "main") -> AnalysisDa
              "reference_items": processed_dir(cfg) / "reference_items.parquet"}
     ann = annotation_dir(cfg, annotation)
     resp = responses_frame(read_records(paths["responses"], Response), load_prompts(cfg), cfg)
+    # Responses from models dropped from the study (e.g. Kimi, replaced by Qwen) stay on disk
+    # but are left out of every per-model analysis.
+    if not resp.empty:
+        resp = resp[resp["model_id"].isin(cfg.evaluated)].reset_index(drop=True)
     judg = judgments_frame(read_records(paths["judgments"], Judgment))
+    # Only judgments of `ok` responses count; a response relabeled later (e.g. to no_answer)
+    # keeps its old judgments on disk, but they must not enter the agreement analyses.
+    if not judg.empty and not resp.empty:
+        judg = judg[judg["item_id"].isin(resp.loc[resp["status"] == "ok", "response_id"])
+                    ].reset_index(drop=True)
     judg_ext = judgments_frame(read_records(paths["judgments_external"], Judgment))
     refs = pd.DataFrame([r.model_dump() for r in read_records(paths["reference_items"],
                                                               ReferenceItem)])

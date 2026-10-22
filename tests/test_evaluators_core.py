@@ -73,6 +73,31 @@ def test_rerun_creates_no_duplicates(tmp_path):
     assert len(read_records(path, Judgment)) == 5
 
 
+def test_interrupted_evaluator_keeps_finished_chunks(tmp_path, monkeypatch):
+    import srs.evaluators.base as base
+
+    monkeypatch.setattr(base, "EVAL_CHUNK", 2)
+    path = tmp_path / "j.parquet"
+    items, _ = eligible_responses([_resp(i) for i in range(5)])
+    ev = KeywordEvaluator("keyword", "zou2023")
+    calls = []
+    inner = ev.evaluate
+
+    def flaky(chunk):
+        calls.append(len(chunk))
+        if len(calls) == 2:
+            raise RuntimeError("crash mid-run")
+        return inner(chunk)
+
+    monkeypatch.setattr(ev, "evaluate", flaky)
+    with pytest.raises(RuntimeError):
+        run_evaluators([ev], items, path, "responses")
+    assert len(read_records(path, Judgment)) == 2
+    counts = run_evaluators([ev], items, path, "responses")
+    assert counts == {"keyword:skipped_done": 2, "keyword:ok": 3}
+    assert len(read_records(path, Judgment)) == 5
+
+
 @pytest.mark.parametrize("label,rule,expected", [
     ("partial", "partial_as_compliance", False), ("partial", "partial_as_refusal", True),
     ("full_refusal", "partial_as_compliance", True), ("full_compliance", "partial_as_refusal",
@@ -127,7 +152,21 @@ def test_judge_ok_json_schema(cfg):
     assert (j.status, j.refusal, j.harmful) == ("ok", "full_refusal", False)
     assert "Declines." in j.raw_output
     body = client.transport.calls[0][1]
-    assert body["response_format"]["type"] == "json_schema" and body["temperature"] == 0.0
+    # judge_a is Claude Haiku 5.5, which rejects non-default sampling: temperature is dropped
+    assert body["response_format"]["type"] == "json_schema" and "temperature" not in body
+
+
+def test_judge_runs_across_chunks(cfg, tmp_path, monkeypatch):
+    """Each chunk calls evaluate() again; the client's limiter must stay on one event loop."""
+    import srs.evaluators.base as base
+
+    monkeypatch.setattr(base, "EVAL_CHUNK", 2)
+    provider = cfg.models[cfg.evaluators["judge_a"].model].provider
+    cfg.providers[provider].max_concurrency = 1  # forces semaphore waits, which bind a loop
+    judge, _ = _judge(cfg, responder=lambda p, b: fake_response(GOOD), delay_s=0.01)
+    items, _ = eligible_responses([_resp(i) for i in range(5)])
+    counts = run_evaluators([judge], items, tmp_path / "j.parquet", "responses")
+    assert counts == {"judge_a:ok": 5}
 
 
 def test_judge_b_json_object_retry_then_ok(cfg):
@@ -136,6 +175,7 @@ def test_judge_b_json_object_retry_then_ok(cfg):
     [j] = judge.evaluate([_item()])
     assert j.status == "ok" and len(client.transport.calls) == 2
     assert client.transport.calls[0][1]["response_format"] == {"type": "json_object"}
+    assert client.transport.calls[0][1]["temperature"] == 0.0
 
 
 def test_judge_parse_error_after_retries(cfg):
@@ -165,11 +205,11 @@ def test_judge_transient_error_not_recorded(cfg):
 def test_judge_substitution_changes_version(cfg):
     a, _ = _judge(cfg, "judge_b")
     v1 = a.version()
-    cfg.evaluators["judge_b"].model = "kimi-a"
+    cfg.evaluators["judge_b"].model = "qwen-a"
     b, client = _judge(cfg, "judge_b", queue=[fake_response(GOOD)])
     assert b.version() != v1
     b.evaluate([_item()])
-    assert client.transport.calls[0][1]["model"] == cfg.models["kimi-a"].model
+    assert client.transport.calls[0][1]["model"] == cfg.models["qwen-a"].model
 
 
 def test_rubric_edit_changes_version(cfg):

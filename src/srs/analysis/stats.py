@@ -77,7 +77,10 @@ def kendalls_w(scores: pd.DataFrame) -> dict[str, float]:
     for row in data:
         _, counts = np.unique(row, return_counts=True)
         t += float(np.sum(counts ** 3 - counts))
-    w = 12 * s / (m ** 2 * (n ** 3 - n) - m * t)
+    denom = m ** 2 * (n ** 3 - n) - m * t
+    if denom <= 0:  # every rater tied all objects: concordance is undefined
+        return {"W": float("nan"), "chi2": float("nan"), "p_value": float("nan"), "m": m, "n": n}
+    w = 12 * s / denom
     stat = m * (n - 1) * w
     return {"W": w, "chi2": stat, "p_value": float(chi2.sf(stat, n - 1)), "m": m, "n": n}
 
