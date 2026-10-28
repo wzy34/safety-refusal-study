@@ -20,7 +20,7 @@ The design, specs and task list are in
 | RQ1 | Do models differ in refusal accuracy on unsafe vs. safe requests? | FAR, ORR, Youden's J with CIs; McNemar tests (Holm-corrected); logistic regression clustered by intent |
 | RQ2 | Does the risk category affect refusal accuracy? | Per-category FAR/ORR profiles across a unified 10-category taxonomy |
 | RQ3 | Does the framing of the same intent change the decision? | Flip rates across 5 framings: direct, academic, role-play, hypothetical, scripted 3-turn |
-| RQ4 | Is there a safety–usability trade-off? | The FAR × ORR plane with its Pareto frontier |
+| RQ4 | Is there a safety–usability trade-off? (not included in the main test and paper due to lack of time) | The FAR × ORR plane with its Pareto frontier |
 | RQ5 | Do automated evaluators agree with each other and with humans? | Cohen's κ, Krippendorff's α, accuracy vs. reference, signed bias, ranking stability, self-preference |
 
 A stability check (not an RQ) re-samples a subset at temperature 0.7 to test whether the greedy
@@ -109,6 +109,7 @@ uv run python scripts/convert_wildguard_mlx.py
 
 ## Running the pipeline
 
+Test environment: I carried out all the tests on a MacBook pro, with M4 Pro chip.
 Every command writes a run manifest that records the config, arguments and git commit. All API
 calls go through an SQLite cache, so re-running a step does not pay for the same request twice.
 
